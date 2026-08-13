@@ -35,8 +35,7 @@ const supportedExtensions = new Set([
   '.yml',
 ]);
 
-const tokenize = (value: string): string[] =>
-  value.toLocaleLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? [];
+const tokenize = (value: string): string[] => value.toLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? [];
 
 const termFrequency = (value: string): ReadonlyMap<string, number> => {
   const counts = new Map<string, number>();
@@ -106,7 +105,7 @@ export class LocalDocsProvider implements DocumentationProvider {
         source: chunk.source,
         section: chunk.section,
         content: chunk.content,
-        score: Number(score.toFixed(4)),
+        score: Math.min(1, Number(score.toFixed(4))),
       }));
     return Promise.resolve(scored);
   }
@@ -117,7 +116,13 @@ export class LocalDocsProvider implements DocumentationProvider {
 
     const files: string[] = [];
     const visit = (directory: string): void => {
-      for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      let entries;
+      try {
+        entries = readdirSync(directory, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const entry of entries) {
         const path = resolve(directory, entry.name);
         if (entry.isDirectory()) visit(path);
         else if (entry.isFile() && supportedExtensions.has(extname(entry.name).toLowerCase()))
@@ -127,19 +132,23 @@ export class LocalDocsProvider implements DocumentationProvider {
     visit(root);
 
     return files.sort().flatMap((path) => {
-      if (statSync(path).size > this.options.maxFileBytes) return [];
-      const content = readFileSync(path, 'utf8');
-      return splitContent(content, this.options.chunkSize, this.options.chunkOverlap).map(
-        ({ content: chunk, offset }) => {
-          const source = relative(root, path);
-          return {
-            source,
-            section: sectionAt(content, offset),
-            content: chunk,
-            terms: termFrequency(chunk),
-          };
-        },
-      );
+      try {
+        if (statSync(path).size > this.options.maxFileBytes) return [];
+        const content = readFileSync(path, 'utf8');
+        return splitContent(content, this.options.chunkSize, this.options.chunkOverlap).map(
+          ({ content: chunk, offset }) => {
+            const source = relative(root, path);
+            return {
+              source,
+              section: sectionAt(content, offset),
+              content: chunk,
+              terms: termFrequency(chunk),
+            };
+          },
+        );
+      } catch {
+        return [];
+      }
     });
   }
 

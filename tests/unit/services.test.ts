@@ -10,7 +10,8 @@ import { TestDocumentationProvider } from '../helpers/provider.js';
 const temporaryDirectories: string[] = [];
 
 afterEach(() => {
-  for (const directory of temporaryDirectories.splice(0)) rmSync(directory, { recursive: true });
+  for (const directory of temporaryDirectories.splice(0))
+    rmSync(directory, { recursive: true, force: true });
 });
 
 describe('documentation provider and services', () => {
