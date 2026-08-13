@@ -4,7 +4,6 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createApplication } from '../../src/app.js';
 import { LocalDocsProvider } from '../../src/provider/local-docs.js';
-import { createServices } from '../../src/services/index.js';
 import { testConfig } from '../helpers/config.js';
 import { TestDocumentationProvider } from '../helpers/provider.js';
 

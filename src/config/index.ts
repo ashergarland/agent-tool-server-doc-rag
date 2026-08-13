@@ -71,7 +71,7 @@ export interface AppConfig {
     readonly confirmationRequired: boolean;
   };
   readonly docs: {
-    readonly path: string;
+    readonly rootPath: string;
     readonly chunkSize: number;
     readonly chunkOverlap: number;
     readonly maxFileBytes: number;
@@ -121,7 +121,7 @@ export const buildConfig = (env: Env): AppConfig => {
       confirmationRequired: env.MUTATION_CONFIRMATION_REQUIRED,
     },
     docs: {
-      path: env.DOCS_PATH,
+      rootPath: env.DOCS_PATH,
       chunkSize: env.DOCS_CHUNK_SIZE,
       chunkOverlap: env.DOCS_CHUNK_OVERLAP,
       maxFileBytes: env.DOCS_MAX_FILE_SIZE_MB * 1024 * 1024,

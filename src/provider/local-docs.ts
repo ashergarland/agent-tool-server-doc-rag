@@ -54,7 +54,10 @@ const sectionAt = (content: string, offset: number): string | undefined => {
   const headings = content
     .slice(0, lineEnd === -1 ? content.length : lineEnd)
     .match(/^#{1,6}\s+(.+)$/gm);
-  return headings?.at(-1)?.replace(/^#{1,6}\s+/, '').trim();
+  return headings
+    ?.at(-1)
+    ?.replace(/^#{1,6}\s+/, '')
+    .trim();
 };
 
 const splitContent = (content: string, chunkSize: number, overlap: number): ContentChunk[] => {
@@ -63,10 +66,7 @@ const splitContent = (content: string, chunkSize: number, overlap: number): Cont
   while (start < content.length) {
     let end = Math.min(start + chunkSize, content.length);
     if (end < content.length) {
-      const boundary = Math.max(
-        content.lastIndexOf('\n\n', end),
-        content.lastIndexOf('\n#', end),
-      );
+      const boundary = Math.max(content.lastIndexOf('\n\n', end), content.lastIndexOf('\n#', end));
       if (boundary > start + chunkSize / 2) end = boundary;
     }
     const rawChunk = content.slice(start, end);

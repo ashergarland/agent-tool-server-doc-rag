@@ -1,7 +1,4 @@
-import type {
-  DocumentationProvider,
-  DocumentationSearchResult,
-} from '../../src/provider/types.js';
+import type { DocumentationProvider, DocumentationSearchResult } from '../../src/provider/types.js';
 
 export class TestDocumentationProvider implements DocumentationProvider {
   public search(query: string, limit: number): Promise<readonly DocumentationSearchResult[]> {
