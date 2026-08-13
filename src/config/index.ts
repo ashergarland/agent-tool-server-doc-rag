@@ -30,7 +30,7 @@ export const envSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65_535).default(8080),
   HOST: z.string().min(1).default('0.0.0.0'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
-  SERVICE_NAME: z.string().min(1).default('agent-tool-server-template'),
+  SERVICE_NAME: z.string().min(1).default('agent-tool-server-doc-rag'),
   SERVICE_VERSION: z.string().min(1).default('0.0.0-dev'),
   GIT_SHA: z.string().default('unknown'),
   PUBLIC_BASE_URL: z.url().optional(),
@@ -40,6 +40,10 @@ export const envSchema = z.object({
   API_KEYS: csv.default([]),
   MUTATIONS_ENABLED: booleanish.default(false),
   MUTATION_CONFIRMATION_REQUIRED: booleanish.default(true),
+  DOCS_PATH: z.string().min(1).default('./docs'),
+  DOCS_CHUNK_SIZE: z.coerce.number().int().min(256).max(16_000).default(4000),
+  DOCS_CHUNK_OVERLAP: z.coerce.number().int().min(0).max(4000).default(400),
+  DOCS_MAX_FILE_SIZE_MB: z.coerce.number().min(0.1).max(100).default(20),
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -66,6 +70,12 @@ export interface AppConfig {
     readonly mutationsEnabled: boolean;
     readonly confirmationRequired: boolean;
   };
+  readonly docs: {
+    readonly rootPath: string;
+    readonly chunkSize: number;
+    readonly chunkOverlap: number;
+    readonly maxFileBytes: number;
+  };
 }
 
 export class ConfigurationError extends Error {
@@ -73,6 +83,9 @@ export class ConfigurationError extends Error {
 }
 
 export const buildConfig = (env: Env): AppConfig => {
+  if (env.DOCS_CHUNK_OVERLAP >= env.DOCS_CHUNK_SIZE) {
+    throw new ConfigurationError('DOCS_CHUNK_OVERLAP must be smaller than DOCS_CHUNK_SIZE');
+  }
   if (env.AUTH_MODE === 'disabled' && env.NODE_ENV === 'production') {
     throw new ConfigurationError('AUTH_MODE=disabled is not permitted in production');
   }
@@ -106,6 +119,12 @@ export const buildConfig = (env: Env): AppConfig => {
     guardrails: {
       mutationsEnabled: env.MUTATIONS_ENABLED,
       confirmationRequired: env.MUTATION_CONFIRMATION_REQUIRED,
+    },
+    docs: {
+      rootPath: env.DOCS_PATH,
+      chunkSize: env.DOCS_CHUNK_SIZE,
+      chunkOverlap: env.DOCS_CHUNK_OVERLAP,
+      maxFileBytes: env.DOCS_MAX_FILE_SIZE_MB * 1024 * 1024,
     },
   };
 };

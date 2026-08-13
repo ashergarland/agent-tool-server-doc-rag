@@ -1,8 +1,8 @@
-# Agent Tool Server Template
+# Agent Tool Server Doc RAG
 
-Reusable GitHub template for the `ashergarland/agent-tool-server-*` family. It provides generic
-infrastructure for one typed tool registry exposed through stdio MCP, stateless Streamable HTTP
-MCP, and HTTP/OpenAPI. The example item domain is intentionally disposable.
+Local documentation retrieval for agents exposed through stdio MCP, stateless Streamable HTTP MCP,
+and HTTP/OpenAPI. It recursively indexes bounded text and source files at startup, then returns only
+the chunks relevant to each query instead of sending complete documentation sets to the agent.
 
 ## Included contract
 
@@ -21,6 +21,11 @@ mutation policy. Do not independently define transport-specific tool lists.
 
 ## Architecture
 
+`search_local_docs` accepts a query and an optional result limit (1–10, default 5). Results include
+the relative source path, nearest Markdown section, bounded chunk content, and relevance score. The
+local adapter uses TF-IDF vectors and cosine similarity, with no external embedding API or data
+transfer. Supported files include Markdown, text, JSON, YAML, HTML, and common source code.
+
 ```text
 HTTP / OpenAPI / MCP transports
              |
@@ -30,14 +35,14 @@ HTTP / OpenAPI / MCP transports
              |
        Provider port
              |
-      Provider adapter
+    Local TF-IDF index
 ```
 
 - Transports contain no provider or product logic.
 - Services implement domain behavior and use provider interfaces, never SDK types.
 - Provider adapters translate external failures to `AppError`.
 - Every transport uses the same `ToolRegistry`.
-- Write tools pass through `Guardrails` before calling a provider.
+- Documentation remains local to the configured index.
 
 ## Start locally
 
@@ -71,28 +76,6 @@ Generate the OpenAPI artifact:
 npm run openapi:emit
 ```
 
-## Create a new family server
-
-After selecting **Use this template**, replace the example in this order:
-
-1. Update `package.json`, `server.json`, `.env.example`, and the title/description in
-   `src/openapi/document.ts`.
-2. Replace `src/provider/types.ts` with the narrow domain port. Keep third-party SDK types out of
-   the interface when practical.
-3. Replace `src/provider/memory.ts` with a real adapter and map provider errors to `AppError`.
-4. Replace `src/services/items.ts`; keep authorization scope and mutation policy in services.
-5. Replace the example definitions in `src/tools/definitions.ts`. Preserve `defineTool`,
-   `ToolDefinition`, and the central `toolDefinitions` array.
-6. Wire the provider in `src/app.ts` and `src/mcp/stdio.ts`.
-7. Replace example tests and metadata. Search for `example`, `template`, `replace`, and
-   `tools.example.com`.
-8. Tailor `infra/` role assignments to the least privilege required by the provider. The supplied
-   identity has no domain data-plane roles.
-9. Run every command in [Validation](#validation).
-
-Do not copy identifiers, tenant/subscription IDs, credentials, resource names, or descriptions
-from another family server. Parameters and secrets must come from deployment inputs or Key Vault.
-
 ## Security defaults
 
 - Production refuses `AUTH_MODE=disabled`.
@@ -118,6 +101,11 @@ See `.env.example`. Production requires `AUTH_MODE=api-key` and `API_KEYS`. Mult
 comma-separated to support rotation. Keep `MUTATIONS_ENABLED=false` until write tools and provider
 roles have been reviewed.
 
+Set `DOCS_PATH` to the local directory or mounted volume to index. `DOCS_CHUNK_SIZE`,
+`DOCS_CHUNK_OVERLAP`, and `DOCS_MAX_FILE_SIZE_MB` bound ingestion and returned context. Files larger
+than the configured per-file limit and unsupported or symbolic-link entries are ignored. Restart
+the server to rebuild the index after documentation changes.
+
 ## Deployment
 
 The Azure Container Apps example uses a user-assigned managed identity, Azure Container Registry,
@@ -130,7 +118,7 @@ it for another hosting platform.
 
 ## Metadata
 
-- `server.json` is a replaceable MCP registry metadata example.
+- `server.json` contains MCP registry metadata.
 - `examples/central-registry-entry.json` demonstrates the family registry entry.
 - `npm run metadata:validate` validates both local examples.
 
@@ -147,7 +135,7 @@ npm run test:coverage
 npm run build
 npm run openapi:emit
 npm run metadata:validate
-docker build -t agent-tool-server-template .
+docker build -t agent-tool-server-doc-rag .
 az bicep build --file infra/main.bicep
 az bicep lint --file infra/main.bicep
 ```

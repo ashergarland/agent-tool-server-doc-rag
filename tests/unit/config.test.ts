@@ -32,4 +32,17 @@ describe('configuration', () => {
       buildConfig(envSchema.parse({ NODE_ENV: 'test', AUTH_MODE: 'api-key', API_KEYS: 'short' })),
     ).toThrow('at least 32');
   });
+
+  it('validates document chunk overlap', () => {
+    expect(() =>
+      buildConfig(
+        envSchema.parse({
+          NODE_ENV: 'test',
+          AUTH_MODE: 'disabled',
+          DOCS_CHUNK_SIZE: 256,
+          DOCS_CHUNK_OVERLAP: 256,
+        }),
+      ),
+    ).toThrow('smaller');
+  });
 });
