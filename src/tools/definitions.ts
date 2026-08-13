@@ -30,52 +30,26 @@ export const defineTool = <InputSchema extends z.ZodType, OutputSchema extends z
   definition: ToolDefinition<InputSchema, OutputSchema>,
 ): ToolDefinition<InputSchema, OutputSchema> => definition;
 
-const itemSchema = z.object({
-  id: z.string(),
-  title: z.string(),
-  status: z.enum(['pending', 'complete']),
+const searchResultSchema = z.object({
+  source: z.string(),
+  section: z.string().optional(),
+  content: z.string(),
+  score: z.number().min(0).max(1),
 });
 
-export const listItemsTool = defineTool({
-  name: 'example_list_items',
-  title: 'List example items',
-  summary: 'List items from the replaceable example provider.',
-  description: 'Demonstrates a read-only tool crossing tool, service, and provider boundaries.',
+export const searchLocalDocsTool = defineTool({
+  name: 'search_local_docs',
+  title: 'Search local documentation',
+  summary: 'Find the most relevant chunks in the configured local documentation index.',
+  description:
+    'Searches a local TF-IDF vector index and returns only the relevant bounded documentation chunks.',
   kind: 'read',
-  inputSchema: z.object({}),
-  outputSchema: z.object({ items: z.array(itemSchema) }),
-  handler: async (_input, services) => ({ items: [...(await services.items.list())] }),
-});
-
-export const getItemTool = defineTool({
-  name: 'example_get_item',
-  title: 'Get an example item',
-  summary: 'Get one item by identifier.',
-  description: 'Demonstrates validated input and safe not-found error mapping.',
-  kind: 'read',
-  inputSchema: z.object({ id: z.string().min(1).max(100) }),
-  outputSchema: z.object({ item: itemSchema }),
-  handler: async (input, services) => ({ item: await services.items.get(input.id) }),
-});
-
-export const updateItemTool = defineTool({
-  name: 'example_update_item',
-  title: 'Update an example item',
-  summary: 'Preview or update an item status.',
-  description: 'Demonstrates dry-run and explicit-confirmation mutation guardrails.',
-  kind: 'write',
   inputSchema: z.object({
-    id: z.string().min(1).max(100),
-    status: z.enum(['pending', 'complete']),
-    dryRun: z.boolean().default(false),
-    confirm: z.boolean().default(false),
+    query: z.string().trim().min(1).max(500),
+    limit: z.number().int().min(1).max(10).default(5),
   }),
-  outputSchema: z.object({ item: itemSchema, performed: z.boolean(), dryRun: z.boolean() }),
-  handler: (input, services) => services.items.updateStatus(input),
+  outputSchema: z.object({ results: z.array(searchResultSchema) }),
+  handler: (input, services) => services.documentation.search(input),
 });
 
-export const toolDefinitions = [
-  listItemsTool,
-  getItemTool,
-  updateItemTool,
-] as const satisfies readonly ToolDefinition[];
+export const toolDefinitions = [searchLocalDocsTool] as const satisfies readonly ToolDefinition[];

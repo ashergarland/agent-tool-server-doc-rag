@@ -1,14 +1,10 @@
-export type ItemStatus = 'pending' | 'complete';
-
-export interface Item {
-  readonly id: string;
-  readonly title: string;
-  readonly status: ItemStatus;
+export interface DocumentationSearchResult {
+  readonly source: string;
+  readonly section: string | undefined;
+  readonly content: string;
+  readonly score: number;
 }
 
-/** Domain port. Replace this interface and its adapter without changing transports. */
-export interface ExampleProvider {
-  listItems(): Promise<readonly Item[]>;
-  getItem(id: string): Promise<Item | undefined>;
-  updateItemStatus(id: string, status: ItemStatus): Promise<Item | undefined>;
+export interface DocumentationProvider {
+  search(query: string, limit: number): Promise<readonly DocumentationSearchResult[]>;
 }
