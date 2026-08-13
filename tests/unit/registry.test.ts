@@ -1,29 +1,25 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { AppError } from '../../src/errors.js';
-import { MemoryProvider } from '../../src/provider/memory.js';
 import { createServices } from '../../src/services/index.js';
 import { defineTool } from '../../src/tools/definitions.js';
 import { createToolRegistry, ToolRegistry } from '../../src/tools/registry.js';
 import { testConfig } from '../helpers/config.js';
+import { TestDocumentationProvider } from '../helpers/provider.js';
 
 const context = { requestId: 'test', principal: 'tester' };
 
 describe('tool registry', () => {
   it('exposes unique definitions and schemas', () => {
     const registry = createToolRegistry();
-    expect(registry.list().map((tool) => tool.name)).toEqual([
-      'example_list_items',
-      'example_get_item',
-      'example_update_item',
-    ]);
+    expect(registry.list().map((tool) => tool.name)).toEqual(['search_local_docs']);
     expect(registry.list().every((tool) => tool.inputJsonSchema['type'] === 'object')).toBe(true);
   });
 
   it('validates input and output', async () => {
-    const services = createServices(testConfig(), new MemoryProvider());
+    const services = createServices(testConfig(), new TestDocumentationProvider());
     await expect(
-      createToolRegistry().invoke('example_get_item', {}, services, context),
+      createToolRegistry().invoke('search_local_docs', {}, services, context),
     ).rejects.toMatchObject({
       code: 'bad_request',
     });

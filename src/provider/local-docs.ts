@@ -1,10 +1,8 @@
-import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { extname, relative, resolve } from 'node:path';
 import type { DocumentationProvider, DocumentationSearchResult } from './types.js';
 
 interface IndexedChunk {
-  readonly id: string;
   readonly source: string;
   readonly section: string | undefined;
   readonly content: string;
@@ -46,13 +44,21 @@ const termFrequency = (value: string): ReadonlyMap<string, number> => {
   return counts;
 };
 
+interface ContentChunk {
+  readonly content: string;
+  readonly offset: number;
+}
+
 const sectionAt = (content: string, offset: number): string | undefined => {
-  const headings = content.slice(0, offset).match(/^#{1,6}\s+(.+)$/gm);
+  const lineEnd = content.indexOf('\n', offset);
+  const headings = content
+    .slice(0, lineEnd === -1 ? content.length : lineEnd)
+    .match(/^#{1,6}\s+(.+)$/gm);
   return headings?.at(-1)?.replace(/^#{1,6}\s+/, '').trim();
 };
 
-const splitContent = (content: string, chunkSize: number, overlap: number): string[] => {
-  const chunks: string[] = [];
+const splitContent = (content: string, chunkSize: number, overlap: number): ContentChunk[] => {
+  const chunks: ContentChunk[] = [];
   let start = 0;
   while (start < content.length) {
     let end = Math.min(start + chunkSize, content.length);
@@ -63,8 +69,9 @@ const splitContent = (content: string, chunkSize: number, overlap: number): stri
       );
       if (boundary > start + chunkSize / 2) end = boundary;
     }
-    const chunk = content.slice(start, end).trim();
-    if (chunk) chunks.push(chunk);
+    const rawChunk = content.slice(start, end);
+    const chunk = rawChunk.trim();
+    if (chunk) chunks.push({ content: chunk, offset: start + rawChunk.indexOf(chunk) });
     if (end === content.length) break;
     start = Math.max(start + 1, end - overlap);
   }
@@ -122,19 +129,15 @@ export class LocalDocsProvider implements DocumentationProvider {
     return files.sort().flatMap((path) => {
       if (statSync(path).size > this.options.maxFileBytes) return [];
       const content = readFileSync(path, 'utf8');
-      let offset = 0;
       return splitContent(content, this.options.chunkSize, this.options.chunkOverlap).map(
-        (chunk) => {
+        ({ content: chunk, offset }) => {
           const source = relative(root, path);
-          const indexed = {
-            id: createHash('sha256').update(`${source}:${offset}`).digest('hex'),
+          return {
             source,
             section: sectionAt(content, offset),
             content: chunk,
             terms: termFrequency(chunk),
           };
-          offset = content.indexOf(chunk, offset) + chunk.length;
-          return indexed;
         },
       );
     });

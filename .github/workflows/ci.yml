@@ -44,13 +44,13 @@ jobs:
           context: .
           load: true
           push: false
-          tags: agent-tool-server-template:test
+          tags: agent-tool-server-doc-rag:test
       - name: Smoke test
         run: |
           set -euo pipefail
           API_KEY='ci-only-key-0000000000000000000000000000000000000000000000000000'
           docker run --rm -d --name tool-server -p 8080:8080 \
-            -e API_KEYS="$API_KEY" agent-tool-server-template:test
+            -e API_KEYS="$API_KEY" agent-tool-server-doc-rag:test
           trap 'docker logs tool-server; docker stop tool-server' EXIT
           for attempt in {1..30}; do
             curl --fail --silent http://127.0.0.1:8080/health && break
