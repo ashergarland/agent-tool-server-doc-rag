@@ -87,6 +87,77 @@ describe('chunking and provenance', () => {
     expect(chunks.some((entry) => entry.sectionPath.includes('Glossary'))).toBe(true);
   });
 
+  it('handles end tags with whitespace without losing content or leaking scripts', () => {
+    // `</script >` and `</h1 >` are valid HTML that a regular expression filter mis-parses,
+    // either indexing script content or silently discarding the text that follows.
+    const chunks = chunk(
+      'reference/spaced.html',
+      'html',
+      '<h1>Title </h1 ><script>never_indexed_secret</script >visible tail<style>a{}</style\n>more tail',
+    );
+    const combined = chunks.map((entry) => entry.content).join('\n');
+
+    expect(combined).not.toContain('never_indexed_secret');
+    expect(combined).not.toContain('a{}');
+    expect(combined).toContain('visible tail');
+    expect(combined).toContain('more tail');
+    expect(chunks.some((entry) => entry.sectionPath.includes('Title'))).toBe(true);
+  });
+
+  it('never indexes attribute values as visible text', () => {
+    // A quoted attribute may contain '>', which naive tag stripping treats as the end of the tag.
+    const chunks = chunk(
+      'reference/attributes.html',
+      'html',
+      '<p title="a>b" data-token="never_indexed_attribute">visible body</p>',
+    );
+    const combined = chunks.map((entry) => entry.content).join('\n');
+
+    expect(combined).toContain('visible body');
+    expect(combined).not.toContain('never_indexed_attribute');
+    expect(combined).not.toContain('a>b');
+  });
+
+  it('decodes entities exactly once', () => {
+    // Chained replacements double-unescape: '&amp;lt;' must stay the literal text '&lt;'.
+    const chunks = chunk(
+      'reference/entities.html',
+      'html',
+      '<p>&amp;lt;not-a-tag&amp;gt; &lt;real&gt; &#65;&#x42; &unknownentity;</p>',
+    );
+    const combined = chunks.map((entry) => entry.content).join('\n');
+
+    expect(combined).toContain('&lt;not-a-tag&gt;');
+    expect(combined).toContain('<real>');
+    expect(combined).toContain('AB');
+    expect(combined).toContain('&unknownentity;');
+  });
+
+  it('drops unterminated raw text elements rather than indexing them', () => {
+    const chunks = chunk(
+      'reference/unclosed.html',
+      'html',
+      '<p>visible intro</p><script>never_indexed_tail',
+    );
+    const combined = chunks.map((entry) => entry.content).join('\n');
+
+    expect(combined).toContain('visible intro');
+    expect(combined).not.toContain('never_indexed_tail');
+  });
+
+  it('keeps HTML comments and stray angle brackets out of the index', () => {
+    const chunks = chunk(
+      'reference/comments.html',
+      'html',
+      '<p>before</p><!-- never_indexed_comment --><p>5 < 7 and 8 > 3</p>',
+    );
+    const combined = chunks.map((entry) => entry.content).join('\n');
+
+    expect(combined).not.toContain('never_indexed_comment');
+    expect(combined).toContain('before');
+    expect(combined).toContain('5 < 7');
+  });
+
   it('splits structured data on logical members', () => {
     const chunks = chunk(
       'reference/limits.yaml',

@@ -227,6 +227,40 @@ const buildCorpusConfig = (env: Env, isProduction: boolean): CorpusConfig => {
   };
 };
 
+/**
+ * API keys must be high-entropy machine-generated credentials, not human-chosen passphrases.
+ * Verification uses a fast keyed digest, which is only sound when the secret cannot be guessed.
+ *
+ * These checks raise the floor rather than measure true entropy, which is not recoverable from an
+ * arbitrary string: they reject short keys, tiny alphabets and repeated patterns. Generating keys
+ * with `openssl rand -hex 32`, as the documentation instructs, is what actually guarantees strength.
+ */
+const isRepeatedPattern = (value: string): boolean => {
+  for (let size = 1; size <= value.length / 2; size += 1) {
+    if (value.length % size !== 0) continue;
+    if (value.slice(0, size).repeat(value.length / size) === value) return true;
+  }
+  return false;
+};
+
+const minimumApiKeyLength = 32;
+const minimumDistinctCharacters = 12;
+
+const assertStrongApiKeys = (apiKeys: readonly string[]): void => {
+  for (const key of apiKeys) {
+    if (key.length < minimumApiKeyLength) {
+      throw new ConfigurationError(
+        `Every API key must be at least ${minimumApiKeyLength} characters`,
+      );
+    }
+    if (new Set(key).size < minimumDistinctCharacters || isRepeatedPattern(key)) {
+      throw new ConfigurationError(
+        'Every API key must be a high-entropy random value; generate one with `openssl rand -hex 32`',
+      );
+    }
+  }
+};
+
 export const buildConfig = (env: Env, processEnv: NodeJS.ProcessEnv = process.env): AppConfig => {
   const isProduction = env.NODE_ENV === 'production';
   if (env.CHUNK_MIN_CHARS >= env.CHUNK_MAX_CHARS) {
@@ -239,9 +273,7 @@ export const buildConfig = (env: Env, processEnv: NodeJS.ProcessEnv = process.en
     if (env.API_KEYS.length === 0) {
       throw new ConfigurationError('AUTH_MODE=api-key requires API_KEYS');
     }
-    if (env.API_KEYS.some((key) => key.length < 32)) {
-      throw new ConfigurationError('Every API key must be at least 32 characters');
-    }
+    assertStrongApiKeys(env.API_KEYS);
   }
 
   const corpus = buildCorpusConfig(env, isProduction);

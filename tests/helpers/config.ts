@@ -1,6 +1,11 @@
+import { randomBytes } from 'node:crypto';
 import { buildConfig, envSchema, type AppConfig } from '../../src/config/index.js';
 
-export const testApiKey = 'test-api-key-that-is-at-least-32-characters';
+/**
+ * Generated per test process rather than hard-coded. Configuration rejects low-entropy keys, and
+ * committing a realistic-looking literal would be both a bad example and secret-scanner noise.
+ */
+export const testApiKey = randomBytes(32).toString('hex');
 
 export const testConfig = (overrides: Record<string, unknown> = {}): AppConfig =>
   buildConfig(

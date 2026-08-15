@@ -106,7 +106,7 @@ cp .env.example .env
 npm run dev
 ```
 
-API-key mode requires a random key of at least 32 characters:
+API-key mode requires a randomly generated key. Weak keys are rejected at startup:
 
 ```bash
 API_KEY="$(openssl rand -hex 32)"
@@ -205,8 +205,11 @@ answer.
 
 - Production refuses `AUTH_MODE=disabled` and rejects a relative or application-directory
   `DOCS_ROOT`.
-- API keys are compared as fixed-width keyed HMAC digests; only non-reversible fingerprints are
-  retained.
+- API keys must be randomly generated; short keys, tiny alphabets and repeated patterns are rejected
+  at startup. They are compared as fixed-width keyed HMAC digests, and only non-reversible
+  fingerprints are retained.
+- HTML is parsed with a tokenizer rather than regexes, so script, style and attribute content never
+  reaches the index.
 - Authentication is rate-limited before and after credential verification.
 - Blob access is managed identity only, container-scoped and read-only.
 - Errors never expose absolute paths, storage identity, corpus content, queries, or stacks.

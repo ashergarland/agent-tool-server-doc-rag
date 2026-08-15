@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
   buildConfig,
@@ -9,12 +10,15 @@ import {
 
 const parse = (values: Record<string, unknown>) => envSchema.parse(values);
 
+/** Generated rather than hard-coded, matching what `openssl rand -hex 32` produces. */
+const strongApiKey = randomBytes(32).toString('hex');
+
 describe('configuration', () => {
   it('ignores blank optional values and applies bounded defaults', () => {
     const config = loadConfig({
       NODE_ENV: 'test',
       AUTH_MODE: 'api-key',
-      API_KEYS: '12345678901234567890123456789012',
+      API_KEYS: strongApiKey,
       PUBLIC_BASE_URL: '',
       DOCS_ROOT: 'tests/fixtures/corpus',
     });
@@ -35,6 +39,27 @@ describe('configuration', () => {
     expect(() =>
       buildConfig(parse({ NODE_ENV: 'test', AUTH_MODE: 'api-key', API_KEYS: 'short' }), {}),
     ).toThrow('at least 32');
+  });
+
+  it('rejects long but low-entropy API keys', () => {
+    // Verification uses a fast keyed digest, which is only sound for unguessable secrets.
+    for (const weak of [
+      'passwordpasswordpasswordpassword',
+      'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      'abcabcabcabcabcabcabcabcabcabcabcabc',
+      'key-0000000000000000000000000000000000',
+    ]) {
+      expect(() =>
+        buildConfig(parse({ NODE_ENV: 'test', AUTH_MODE: 'api-key', API_KEYS: weak }), {}),
+      ).toThrow('high-entropy');
+    }
+  });
+
+  it('accepts randomly generated API keys', () => {
+    const random = randomBytes(32).toString('hex');
+    expect(() =>
+      buildConfig(parse({ NODE_ENV: 'test', AUTH_MODE: 'api-key', API_KEYS: random }), {}),
+    ).not.toThrow();
   });
 
   it('validates chunk bounds', () => {
@@ -62,7 +87,7 @@ describe('configuration', () => {
         parse({
           NODE_ENV: 'production',
           AUTH_MODE: 'api-key',
-          API_KEYS: '12345678901234567890123456789012',
+          API_KEYS: strongApiKey,
           DOCS_ROOT: './docs',
         }),
         {},
@@ -74,7 +99,7 @@ describe('configuration', () => {
         parse({
           NODE_ENV: 'production',
           AUTH_MODE: 'api-key',
-          API_KEYS: '12345678901234567890123456789012',
+          API_KEYS: strongApiKey,
           DOCS_ROOT: process.cwd(),
         }),
         {},

@@ -51,7 +51,8 @@ jobs:
       - name: Tool smoke test over an authenticated transport
         run: |
           set -euo pipefail
-          API_KEY='ci-only-key-0000000000000000000000000000000000000000000000000000'
+          # Generated per run: no key material is committed, and the server rejects weak keys.
+          API_KEY="$(openssl rand -hex 32)"
 
           # A tiny read-only corpus, mounted exactly as a deployment would mount one.
           mkdir -p corpus/guides
@@ -112,7 +113,7 @@ jobs:
       - name: Missing corpus stays not ready
         run: |
           set -euo pipefail
-          API_KEY='ci-only-key-0000000000000000000000000000000000000000000000000000'
+          API_KEY="$(openssl rand -hex 32)"
 
           docker run --rm -d --name tool-server-empty -p 8081:8080 \
             -e API_KEYS="$API_KEY" agent-tool-server-doc-rag:test
