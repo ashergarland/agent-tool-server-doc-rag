@@ -7,8 +7,11 @@ import type { Logger } from 'pino';
 import type { AppConfig } from '../config/index.js';
 import { AppError } from '../errors.js';
 import { createMcpServer } from '../mcp/server.js';
+import type { MetricsRecorder } from '../observability/metrics.js';
+import { NoopMetrics } from '../observability/metrics.js';
 import { buildOpenApiDocument } from '../openapi/document.js';
 import type { Services } from '../services/index.js';
+import { serverInstructions } from '../tools/guidance.js';
 import type { ToolRegistry } from '../tools/registry.js';
 import { createAuthenticator, type Principal } from './auth.js';
 import { registerErrorHandler } from './errors.js';
@@ -26,6 +29,7 @@ export interface HttpServerDeps {
   readonly logger: Logger;
   readonly services: Services;
   readonly registry: ToolRegistry;
+  readonly metrics?: MetricsRecorder;
 }
 
 export const createHttpServer = ({
@@ -33,6 +37,7 @@ export const createHttpServer = ({
   logger,
   services,
   registry,
+  metrics = new NoopMetrics(),
 }: HttpServerDeps): HttpServer => {
   const startedAt = Date.now();
   const app = Fastify({
@@ -69,11 +74,35 @@ export const createHttpServer = ({
 
   registerErrorHandler(app, config);
 
+  // Liveness only: the process is running and can serve HTTP.
   app.get('/health', () => ({
     status: 'ok' as const,
     service: config.service.name,
     uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000),
   }));
+
+  // Readiness: a usable, configured index must exist. An empty index is not ready in production.
+  app.get('/ready', (_request, reply) => {
+    const snapshot = services.index.snapshot();
+    const usable =
+      services.index.isUsable() && !(config.isProduction && snapshot.state === 'ready_empty');
+    return reply.status(usable ? 200 : 503).send({
+      status: usable ? ('ready' as const) : ('not_ready' as const),
+      index: {
+        state: snapshot.state,
+        sourceKind: snapshot.sourceKind,
+        configured: snapshot.configured,
+        indexVersion: snapshot.indexVersion,
+        indexedAt: snapshot.indexedAt,
+        documentCount: snapshot.documentCount,
+        chunkCount: snapshot.chunkCount,
+        skippedCount: snapshot.skippedCount,
+        limitsReached: snapshot.limitsReached,
+        lastOutcome: snapshot.lastOutcome,
+        lastErrorCode: snapshot.lastErrorCode,
+      },
+    });
+  });
 
   app.get('/version', () => ({
     service: config.service.name,
@@ -83,9 +112,10 @@ export const createHttpServer = ({
     environment: config.env,
     capabilities: {
       transports: ['stdio', 'streamable-http', 'http-openapi'],
-      mutationsEnabled: config.guardrails.mutationsEnabled,
-      confirmationRequired: config.guardrails.confirmationRequired,
       authMode: config.auth.mode,
+      corpusSource: config.corpus.kind,
+      rankingAlgorithm: config.search.algorithm,
+      readOnly: true,
     },
   }));
 
@@ -118,16 +148,20 @@ export const createHttpServer = ({
     };
 
     protectedApp.get('/tools', protectedRouteOptions, () => ({
+      instructions: serverInstructions,
       tools: registry.list().map((tool) => ({
         name: tool.name,
         title: tool.title,
         summary: tool.summary,
         description: tool.description,
-        kind: tool.kind,
+        readOnly: true,
         inputSchema: tool.inputJsonSchema,
         outputSchema: tool.outputJsonSchema,
       })),
     }));
+
+    // Safe aggregates only: no queries, no content, no paths, no storage identity.
+    protectedApp.get('/metrics', protectedRouteOptions, () => metrics.snapshot());
 
     protectedApp.post<{ Params: { toolName: string }; Body: unknown }>(
       '/tools/:toolName',
@@ -136,7 +170,7 @@ export const createHttpServer = ({
         const tool = registry.get(request.params.toolName);
         const principal = request.principal?.id ?? 'anonymous';
         const invokedAt = Date.now();
-        request.log.info({ event: 'tool.invoke', tool: tool.name, kind: tool.kind });
+        request.log.info({ event: 'tool.invoke', tool: tool.name });
         const result = await tool.invoke(request.body ?? {}, services, {
           requestId: request.id,
           principal,

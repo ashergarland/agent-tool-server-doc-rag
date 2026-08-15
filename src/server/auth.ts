@@ -1,19 +1,18 @@
-import { timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { FastifyRequest } from 'fastify';
 import type { AppConfig } from '../config/index.js';
 import { unauthorized } from '../errors.js';
 
 export interface Principal {
   readonly id: string;
+  /** Non-reversible key fingerprint that is safe to log. */
+  readonly fingerprint: string;
   readonly kind: 'api-key' | 'anonymous';
 }
 
 export interface Authenticator {
   authenticate(request: FastifyRequest): Promise<Principal>;
 }
-
-const equals = (left: Buffer, right: Buffer): boolean =>
-  left.length === right.length && timingSafeEqual(left, right);
 
 const credential = (request: FastifyRequest): string | undefined => {
   const authorization = request.headers.authorization;
@@ -26,27 +25,51 @@ const credential = (request: FastifyRequest): string | undefined => {
 
 class DisabledAuthenticator implements Authenticator {
   public authenticate(): Promise<Principal> {
-    return Promise.resolve({ id: 'anonymous', kind: 'anonymous' });
+    return Promise.resolve({ id: 'anonymous', fingerprint: 'anonymous', kind: 'anonymous' });
   }
 }
 
+/**
+ * Compares fixed-width keyed digests instead of raw credentials, so comparison time never depends
+ * on the presented key's length or content, and only non-reversible fingerprints are retained.
+ */
 class ApiKeyAuthenticator implements Authenticator {
-  private readonly apiKeys: ReadonlyArray<{ value: Buffer; principalId: string }>;
+  private readonly pepper = randomBytes(32);
+  private readonly keys: ReadonlyArray<{
+    digest: Buffer;
+    principalId: string;
+    fingerprint: string;
+  }>;
 
   public constructor(apiKeys: readonly string[]) {
-    this.apiKeys = apiKeys.map((value, index) => ({
-      value: Buffer.from(value, 'utf8'),
-      principalId: `key:${index + 1}`,
-    }));
+    this.keys = apiKeys.map((value, index) => {
+      const digest = this.digestOf(value);
+      return {
+        digest,
+        principalId: `key:${index + 1}`,
+        fingerprint: digest.toString('hex').slice(0, 12),
+      };
+    });
   }
 
   public authenticate(request: FastifyRequest): Promise<Principal> {
     const presented = credential(request);
     if (!presented) throw unauthorized('Missing bearer token or x-api-key header');
-    const presentedValue = Buffer.from(presented, 'utf8');
-    const match = this.apiKeys.find((candidate) => equals(candidate.value, presentedValue));
+    const presentedDigest = this.digestOf(presented);
+    let match: { principalId: string; fingerprint: string } | undefined;
+    for (const key of this.keys) {
+      if (timingSafeEqual(key.digest, presentedDigest)) match = key;
+    }
     if (!match) throw unauthorized('Invalid API key');
-    return Promise.resolve({ id: match.principalId, kind: 'api-key' });
+    return Promise.resolve({
+      id: match.principalId,
+      fingerprint: match.fingerprint,
+      kind: 'api-key',
+    });
+  }
+
+  private digestOf(value: string): Buffer {
+    return createHmac('sha256', this.pepper).update(value, 'utf8').digest();
   }
 }
 

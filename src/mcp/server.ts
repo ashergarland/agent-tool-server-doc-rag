@@ -4,6 +4,7 @@ import type { AppConfig } from '../config/index.js';
 import { toAppError } from '../errors.js';
 import type { Services } from '../services/index.js';
 import type { ToolInvocationContext } from '../tools/definitions.js';
+import { serverInstructions } from '../tools/guidance.js';
 import type { ToolRegistry } from '../tools/registry.js';
 
 const shapeOf = (schema: z.ZodType): z.ZodRawShape =>
@@ -17,7 +18,7 @@ export const createMcpServer = (
 ): McpServer => {
   const server = new McpServer(
     { name: config.service.name, version: config.service.version },
-    { capabilities: { tools: {} } },
+    { capabilities: { tools: {} }, instructions: serverInstructions },
   );
 
   for (const tool of registry.list()) {
@@ -29,9 +30,9 @@ export const createMcpServer = (
         inputSchema: shapeOf(tool.inputSchema),
         outputSchema: shapeOf(tool.outputSchema),
         annotations: {
-          readOnlyHint: tool.kind === 'read',
-          destructiveHint: tool.kind === 'write',
-          idempotentHint: tool.kind === 'read',
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
           openWorldHint: false,
         },
       },
@@ -49,7 +50,11 @@ export const createMcpServer = (
             content: [
               {
                 type: 'text' as const,
-                text: JSON.stringify({ code: appError.code, message: appError.message }),
+                text: JSON.stringify({
+                  code: appError.code,
+                  message: appError.message,
+                  retryable: appError.retryable,
+                }),
               },
             ],
           };

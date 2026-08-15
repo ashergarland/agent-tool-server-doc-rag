@@ -1,19 +1,13 @@
 import { z } from 'zod';
 import { badRequest, notFound, toAppError } from '../errors.js';
 import type { Services } from '../services/index.js';
-import {
-  toolDefinitions,
-  type ToolDefinition,
-  type ToolInvocationContext,
-  type ToolKind,
-} from './definitions.js';
+import { toolDefinitions, type ToolDefinition, type ToolInvocationContext } from './definitions.js';
 
 export interface RegisteredTool {
   readonly name: string;
   readonly title: string;
   readonly summary: string;
   readonly description: string;
-  readonly kind: ToolKind;
   readonly inputSchema: z.ZodType;
   readonly outputSchema: z.ZodType;
   readonly inputJsonSchema: Record<string, unknown>;
