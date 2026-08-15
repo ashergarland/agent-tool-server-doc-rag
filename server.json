@@ -1,26 +1,10 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.ashergarland/agent-tool-server-doc-rag",
-  "description": "Search a bounded local index of documentation and API specifications.",
+  "description": "Retrieve bounded evidence from one configured documentation corpus.",
   "repository": {
     "url": "https://github.com/ashergarland/agent-tool-server-doc-rag",
     "source": "github"
   },
-  "version": "0.1.0",
-  "packages": [
-    {
-      "registryType": "npm",
-      "identifier": "agent-tool-server-doc-rag",
-      "version": "0.1.0",
-      "transport": {
-        "type": "stdio"
-      }
-    }
-  ],
-  "remotes": [
-    {
-      "type": "streamable-http",
-      "url": "https://tools.example.com/mcp"
-    }
-  ]
+  "version": "0.2.0"
 }

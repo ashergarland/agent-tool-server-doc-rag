@@ -26,5 +26,6 @@
     "tests/**/*.ts",
     "vitest.config.ts",
     "eslint.config.js"
-  ]
+  ],
+  "exclude": ["tests/fixtures/corpus/**"]
 }

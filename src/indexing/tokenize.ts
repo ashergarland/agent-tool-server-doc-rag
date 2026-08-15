@@ -21,6 +21,30 @@ const splitIdentifier = (segment: string): string[] => {
 export const isCompoundTerm = (term: string): boolean => separatorPattern.test(term);
 
 /**
+ * Conservative English suffix normalization. Documentation queries routinely use a different
+ * inflection than the text ("rotate the key" against a "Rotating keys" heading), and literal
+ * matching misses those.
+ *
+ * Rules cascade so related forms converge on one stem: rotate, rotates and rotating all reduce to
+ * "rotat". The original term is always indexed alongside the stem, so exact identifier matches keep
+ * their full weight.
+ */
+export const normalizeSuffix = (term: string): string | undefined => {
+  if (term.length < 4 || /\d/u.test(term)) return undefined;
+  let stem = term;
+
+  if (stem.endsWith('ies') && stem.length > 4) stem = `${stem.slice(0, -3)}y`;
+  else if (stem.endsWith('s') && !stem.endsWith('ss') && stem.length > 3) stem = stem.slice(0, -1);
+
+  if (stem.endsWith('ing') && stem.length > 5) stem = stem.slice(0, -3);
+  else if (stem.endsWith('ed') && stem.length > 4) stem = stem.slice(0, -2);
+
+  if (stem.endsWith('e') && stem.length > 4) stem = stem.slice(0, -1);
+
+  return stem.length >= 3 && stem !== term ? stem : undefined;
+};
+
+/**
  * Function words carry no retrieval evidence on their own. They stay in the index so phrases and
  * identifiers still match, but a query made only of them cannot produce evidence.
  */
@@ -95,6 +119,11 @@ export const stopWords: ReadonlySet<string> = new Set([
 
 export const tokenize = (value: string, maxTokens = 20_000): string[] => {
   const terms: string[] = [];
+  const push = (term: string): void => {
+    terms.push(term);
+    const stem = normalizeSuffix(term);
+    if (stem !== undefined) terms.push(stem);
+  };
   for (const match of value.matchAll(unitPattern)) {
     if (terms.length >= maxTokens) break;
     const unit = match[0];
@@ -102,9 +131,9 @@ export const tokenize = (value: string, maxTokens = 20_000): string[] => {
     if (segments.length > 1) terms.push(unit.toLowerCase());
     for (const segment of segments) {
       const lower = segment.toLowerCase();
-      terms.push(lower);
+      push(lower);
       for (const part of splitIdentifier(segment)) {
-        if (part !== lower) terms.push(part);
+        if (part !== lower) push(part);
       }
     }
   }

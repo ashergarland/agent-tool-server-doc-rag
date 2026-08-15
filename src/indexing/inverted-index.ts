@@ -170,6 +170,10 @@ export class LexicalIndex {
     let timedOut = false;
     let visited = 0;
     let queryNorm = 0;
+    // Maximum score this query could attain against an ideal chunk. Raw BM25 magnitudes depend on
+    // corpus size, so normalizing by it keeps a configured threshold meaningful on a three-document
+    // corpus and a three-thousand-document corpus alike.
+    let maxAttainable = 0;
 
     const selective = ordered.some(([term]) => {
       const frequency = this.documentFrequency.get(term) ?? 0;
@@ -191,6 +195,7 @@ export class LexicalIndex {
           ? Math.log(1 + (total - frequency + 0.5) / (frequency + 0.5))
           : Math.log((total + 1) / (frequency + 1)) + 1;
       queryNorm += weight * idf * (weight * idf);
+      maxAttainable += weight * idf * (bm25K1 + 1);
 
       for (const posting of list) {
         visited += 1;
@@ -224,7 +229,7 @@ export class LexicalIndex {
       if (timedOut) break;
     }
 
-    const normalizer = this.algorithm === 'tfidf' ? Math.sqrt(queryNorm) || 1 : 1;
+    const normalizer = this.algorithm === 'tfidf' ? Math.sqrt(queryNorm) || 1 : maxAttainable || 1;
     const phrase = query.trim().toLowerCase();
 
     const matches = [...scores.entries()]
@@ -233,12 +238,13 @@ export class LexicalIndex {
         const base =
           this.algorithm === 'tfidf'
             ? rawScore / (normalizer * (this.norms[position] ?? 1))
-            : rawScore;
+            : rawScore / normalizer;
         const boosted =
           chunk && phrase.length > 2 && chunk.content.toLowerCase().includes(phrase)
             ? base * exactPhraseBoost
             : base;
-        return { chunk, score: boosted };
+        // Scores stay a bounded 0..1 share of attainable evidence, including after boosting.
+        return { chunk, score: Math.min(1, boosted) };
       })
       .filter((entry): entry is ScoredChunk => entry.chunk !== undefined && entry.score > 0)
       .sort((left, right) =>

@@ -36,7 +36,7 @@ const searchResultSchema = z.object({
   startLine: z.number().int().min(0).max(10_000_000).describe(fieldDescriptions.resultLines),
   endLine: z.number().int().min(0).max(10_000_000).describe(fieldDescriptions.resultLines),
   content: z.string().max(8_000).describe(fieldDescriptions.resultContent),
-  score: z.number().min(0).max(10_000).describe(fieldDescriptions.resultScore),
+  score: z.number().min(0).max(1).describe(fieldDescriptions.resultScore),
   truncated: z.boolean().describe(fieldDescriptions.resultTruncated),
 });
 

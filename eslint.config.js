@@ -23,6 +23,14 @@ export default tseslint.config(
       '@typescript-eslint/require-await': 'off',
     },
   },
-  { ignores: ['dist/**', 'coverage/**', 'openapi.json', 'eslint.config.js'] },
+  {
+    ignores: [
+      'dist/**',
+      'coverage/**',
+      'openapi.json',
+      'eslint.config.js',
+      'tests/fixtures/corpus/**',
+    ],
+  },
   prettier,
 );

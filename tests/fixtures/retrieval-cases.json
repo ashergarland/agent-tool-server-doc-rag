@@ -1,0 +1,64 @@
+{
+  "cases": [
+    {
+      "id": "rotate-keys",
+      "query": "how do I rotate an API key",
+      "expectedSources": ["guides/authentication.md"]
+    },
+    {
+      "id": "docs-root-identifier",
+      "query": "DOCS_ROOT",
+      "expectedSources": ["guides/getting-started.md"]
+    },
+    {
+      "id": "camel-case-identifier",
+      "query": "createBlobClient",
+      "expectedSources": ["api/blob-client.ts"]
+    },
+    {
+      "id": "structured-limit",
+      "query": "maxDocumentBytes",
+      "expectedSources": ["reference/limits.yaml"]
+    },
+    {
+      "id": "paraphrase-build",
+      "query": "compile the TypeScript sources before starting",
+      "expectedSources": ["guides/getting-started.md"]
+    },
+    {
+      "id": "readiness-failure",
+      "query": "readiness probe keeps returning 503",
+      "expectedSources": ["notes/troubleshooting.md", "guides/getting-started.md"]
+    },
+    {
+      "id": "heading-lookup",
+      "query": "glossary provenance definition",
+      "expectedSources": ["reference/glossary.html"]
+    },
+    {
+      "id": "path-scoped",
+      "query": "reference errors unauthorized status",
+      "expectedSources": ["reference/errors.json", "guides/authentication.md"]
+    },
+    {
+      "id": "adversarial-content",
+      "query": "untrusted content sample adversarial text",
+      "expectedSources": ["notes/untrusted-instructions.md"]
+    },
+    {
+      "id": "no-match-topic",
+      "query": "quantum chromodynamics lattice simulation",
+      "expectNoMatch": true
+    },
+    {
+      "id": "no-match-common-word",
+      "query": "the and of",
+      "expectNoMatch": true
+    },
+    {
+      "id": "no-match-empty-topic",
+      "query": "kubernetes operator reconciliation loop",
+      "expectNoMatch": true
+    }
+  ]
+}

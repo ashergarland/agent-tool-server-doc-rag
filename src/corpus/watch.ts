@@ -1,4 +1,4 @@
-import { watch, type FSWatcher } from 'node:fs';
+import { realpathSync, watch, type FSWatcher } from 'node:fs';
 import type { CorpusChangeWatcher } from '../indexing/lifecycle.js';
 
 /**
@@ -22,7 +22,10 @@ export class FileSystemChangeWatcher implements CorpusChangeWatcher {
       this.timer.unref?.();
     };
     try {
-      this.watcher = watch(this.rootPath, { recursive: true, persistent: false }, trigger);
+      // Canonicalize first: recursive watching aborts the process inside libuv when it is given a
+      // non-canonical path such as a Windows 8.3 short name.
+      const canonical = realpathSync.native(this.rootPath);
+      this.watcher = watch(canonical, { recursive: true, persistent: false }, trigger);
       this.watcher.on('error', () => this.close());
     } catch {
       this.watcher = undefined;

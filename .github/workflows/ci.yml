@@ -29,6 +29,8 @@ jobs:
       - run: npm run build
       - run: npm run openapi:emit
       - run: npm run metadata:validate
+      - name: Retrieval evaluation report
+        run: npm run eval:retrieval
       - uses: actions/upload-artifact@v4
         with:
           name: openapi
@@ -45,22 +47,86 @@ jobs:
           load: true
           push: false
           tags: agent-tool-server-doc-rag:test
-      - name: Smoke test
+
+      - name: Tool smoke test over an authenticated transport
         run: |
           set -euo pipefail
           API_KEY='ci-only-key-0000000000000000000000000000000000000000000000000000'
+
+          # A tiny read-only corpus, mounted exactly as a deployment would mount one.
+          mkdir -p corpus/guides
+          cat > corpus/guides/authentication.md <<'DOC'
+          # Authentication
+
+          ## Rotating keys
+
+          Add the replacement secret to API_KEYS, deploy the revision, migrate clients,
+          and only then remove the retired secret.
+          DOC
+
           docker run --rm -d --name tool-server -p 8080:8080 \
-            -e API_KEYS="$API_KEY" agent-tool-server-doc-rag:test
-          trap 'docker logs tool-server; docker stop tool-server' EXIT
-          for attempt in {1..30}; do
-            curl --fail --silent http://127.0.0.1:8080/health && break
+            -v "$PWD/corpus:/corpus:ro" \
+            -e API_KEYS="$API_KEY" \
+            -e CORPUS_SOURCE=filesystem \
+            -e DOCS_ROOT=/corpus \
+            agent-tool-server-doc-rag:test
+          trap 'docker logs tool-server || true; docker stop tool-server || true' EXIT
+
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:8080/ready > /dev/null; then break; fi
+            if [ "$attempt" = 60 ]; then
+              echo 'Timed out waiting for readiness'
+              exit 1
+            fi
             sleep 1
           done
-          curl --fail --silent http://127.0.0.1:8080/version
+
+          curl --fail --silent http://127.0.0.1:8080/health > /dev/null
+          curl --fail --silent http://127.0.0.1:8080/version > /dev/null
+
           test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
             http://127.0.0.1:8080/tools)" = 401
-          curl --fail --silent -H "x-api-key: $API_KEY" http://127.0.0.1:8080/tools
+
+          curl --fail --silent -H "x-api-key: $API_KEY" http://127.0.0.1:8080/tools \
+            | grep -q 'search_docs'
+
+          # Invoke the tool itself and require real evidence with provenance.
+          RESULT="$(curl --fail --silent -X POST \
+            -H "x-api-key: $API_KEY" -H 'content-type: application/json' \
+            -d '{"query":"rotate the API key","limit":3}' \
+            http://127.0.0.1:8080/tools/search_docs)"
+          echo "$RESULT"
+          echo "$RESULT" | grep -q '"status":"ok"'
+          echo "$RESULT" | grep -q 'guides/authentication.md'
+          echo "$RESULT" | grep -q '"startLine"'
+          # Absolute container paths must never leak into results.
+          if echo "$RESULT" | grep -q '/corpus/'; then
+            echo 'Result leaked an absolute corpus path'
+            exit 1
+          fi
+
+          # The image must run unprivileged.
           test "$(docker inspect --format '{{.Config.User}}' tool-server)" = node
+          test "$(docker exec tool-server id -u)" != 0
+
+      - name: Missing corpus stays not ready
+        run: |
+          set -euo pipefail
+          API_KEY='ci-only-key-0000000000000000000000000000000000000000000000000000'
+
+          docker run --rm -d --name tool-server-empty -p 8081:8080 \
+            -e API_KEYS="$API_KEY" agent-tool-server-doc-rag:test
+          trap 'docker logs tool-server-empty || true; docker stop tool-server-empty || true' EXIT
+
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8081/health > /dev/null; then break; fi
+            sleep 1
+          done
+
+          # Liveness succeeds, readiness must not: an unconfigured corpus is never ready.
+          curl --fail --silent http://127.0.0.1:8081/health > /dev/null
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            http://127.0.0.1:8081/ready)" = 503
 
   bicep:
     runs-on: ubuntu-latest
@@ -73,3 +139,6 @@ jobs:
           az bicep build --file infra/main.bicep
           az bicep lint --file infra/main.bicep
           az bicep build-params --file infra/parameters/dev.bicepparam
+          for module in infra/modules/*.bicep; do
+            az bicep build --file "$module" --stdout > /dev/null
+          done

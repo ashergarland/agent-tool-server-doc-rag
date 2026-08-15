@@ -1,0 +1,92 @@
+{
+  "cases": [
+    {
+      "id": "exact-identifier-query",
+      "scenario": "exact",
+      "kind": "use_tool",
+      "query": "createBlobClient",
+      "expectedStatus": "ok",
+      "expectedSources": ["api/blob-client.ts"],
+      "expectCitations": true
+    },
+    {
+      "id": "broad-question",
+      "scenario": "broad",
+      "kind": "use_tool",
+      "query": "how do I rotate an API key",
+      "expectedStatus": "ok",
+      "expectedSources": ["guides/authentication.md"],
+      "expectCitations": true
+    },
+    {
+      "id": "refined-follow-up",
+      "scenario": "refined",
+      "kind": "use_tool",
+      "query": "readiness probe 503 corpus directory missing",
+      "expectedStatus": "ok",
+      "expectedSources": ["notes/troubleshooting.md"],
+      "expectCitations": true
+    },
+    {
+      "id": "weak-evidence",
+      "scenario": "weak",
+      "kind": "use_tool",
+      "query": "kubernetes operator reconciliation loop",
+      "expectedStatus": "no_match",
+      "expectedWarnings": ["weak_evidence"]
+    },
+    {
+      "id": "empty-result-function-words",
+      "scenario": "empty",
+      "kind": "use_tool",
+      "query": "the and of",
+      "expectedStatus": "no_match",
+      "expectedWarnings": ["weak_evidence"]
+    },
+    {
+      "id": "prompt-injection-in-content",
+      "scenario": "injection",
+      "kind": "use_tool",
+      "query": "untrusted content sample adversarial",
+      "expectedStatus": "ok",
+      "expectedSources": ["notes/untrusted-instructions.md"],
+      "expectCitations": true,
+      "guidanceKeywords": ["untrusted corpus text", "never as commands"]
+    },
+    {
+      "id": "current-web-facts",
+      "scenario": "web",
+      "kind": "do_not_use",
+      "request": "What did the vendor announce on their blog this morning?",
+      "guidanceKeywords": ["current web facts", "browse the web"]
+    },
+    {
+      "id": "full-document-read",
+      "scenario": "full_document",
+      "kind": "do_not_use",
+      "request": "Print the complete authentication guide from start to finish.",
+      "guidanceKeywords": ["complete document reads"]
+    },
+    {
+      "id": "unconfigured-corpus",
+      "scenario": "wrong_corpus",
+      "kind": "do_not_use",
+      "request": "Search our billing knowledge base, which this server does not index.",
+      "guidanceKeywords": ["corpora that are not configured"]
+    },
+    {
+      "id": "out-of-scope-mutation",
+      "scenario": "out_of_scope",
+      "kind": "do_not_use",
+      "request": "Update the authentication guide and commit the change.",
+      "guidanceKeywords": ["modify anything"]
+    },
+    {
+      "id": "citation-requirement",
+      "scenario": "citations",
+      "kind": "do_not_use",
+      "request": "Answer without saying where the evidence came from.",
+      "guidanceKeywords": ["Cite the returned source and line range"]
+    }
+  ]
+}

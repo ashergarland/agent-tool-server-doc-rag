@@ -16,15 +16,22 @@ ENV NODE_ENV=production \
     PORT=8080 \
     HOST=0.0.0.0 \
     GIT_SHA=${GIT_SHA} \
-    SERVICE_VERSION=${SERVICE_VERSION}
+    SERVICE_VERSION=${SERVICE_VERSION} \
+    CORPUS_SOURCE=none
 WORKDIR /app
 
 COPY --from=build --chown=node:node /workspace/node_modules ./node_modules
 COPY --from=build --chown=node:node /workspace/dist ./dist
 COPY --chown=node:node package.json ./
 
+# The corpus is always mounted or configured separately. /app holds application code and is never
+# treated as a corpus, and the image ships without one so an unconfigured deployment stays not-ready.
+RUN mkdir -p /corpus && chown node:node /corpus
+VOLUME ["/corpus"]
+
 USER node
 EXPOSE 8080
+# Liveness only. Readiness additionally requires a usable configured index at /ready.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+process.env.PORT+'/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
 CMD ["node", "--enable-source-maps", "dist/index.js"]

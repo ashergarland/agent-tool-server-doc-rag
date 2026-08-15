@@ -1,0 +1,11 @@
+corpus:
+  maxDocuments: 2000
+  maxDocumentBytes: 1048576
+  maxTotalBytes: 33554432
+index:
+  maxChunks: 20000
+  buildTimeoutMs: 60000
+search:
+  maxResults: 10
+  timeoutMs: 2000
+  maxResultsPerSource: 3

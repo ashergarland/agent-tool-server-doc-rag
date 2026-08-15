@@ -1,7 +1,7 @@
 {
   "name": "agent-tool-server-doc-rag",
-  "version": "0.1.0",
-  "description": "Local documentation retrieval server for MCP and HTTP agents.",
+  "version": "0.2.0",
+  "description": "Bounded lexical documentation retrieval for agent RAG workflows over MCP and HTTP.",
   "license": "MIT",
   "type": "module",
   "private": true,
@@ -16,6 +16,7 @@
     "mcp:stdio": "node dist/mcp/stdio.js",
     "openapi:emit": "tsx scripts/emit-openapi.ts openapi.json",
     "metadata:validate": "tsx scripts/validate-metadata.ts",
+    "eval:retrieval": "tsx scripts/evaluate-retrieval.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

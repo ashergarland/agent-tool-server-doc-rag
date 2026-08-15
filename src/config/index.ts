@@ -80,7 +80,10 @@ export const envSchema = z.object({
   SECTION_MAX_CHARS: z.coerce.number().int().min(16).max(512).default(200),
 
   SEARCH_ALGORITHM: z.enum(['bm25', 'tfidf']).default('bm25'),
-  SEARCH_MIN_SCORE: z.coerce.number().min(0).max(1_000).default(0.35),
+  // Scores are normalized to the share of attainable evidence, so this threshold is corpus-size
+  // independent. 0.2 is the midpoint of the band that holds perfect recall with no false positives
+  // in the committed evaluation; see npm run eval:retrieval.
+  SEARCH_MIN_SCORE: z.coerce.number().min(0).max(1).default(0.2),
   SEARCH_RELATIVE_CUTOFF: z.coerce.number().min(0).max(1).default(0.2),
   SEARCH_MAX_CANDIDATES: z.coerce.number().int().min(1).max(10_000).default(200),
   SEARCH_MAX_RESULTS: z.coerce.number().int().min(1).max(25).default(10),
