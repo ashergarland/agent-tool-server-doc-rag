@@ -35,31 +35,72 @@ describe('configuration', () => {
     );
   });
 
-  it('requires strong API keys', () => {
+  it('requires API keys to encode enough randomness', () => {
     expect(() =>
       buildConfig(parse({ NODE_ENV: 'test', AUTH_MODE: 'api-key', API_KEYS: 'short' }), {}),
-    ).toThrow('at least 32');
+    ).toThrow('64 hex characters');
   });
 
-  it('rejects long but low-entropy API keys', () => {
-    // Verification uses a fast keyed digest, which is only sound for unguessable secrets.
+  it('rejects keys a human could have typed', () => {
     for (const weak of [
       'passwordpasswordpasswordpassword',
+      // Long enough to clear a naive length check, and long enough that a base64 reading would
+      // have accepted it. Prose contains non-hex letters, so the format contract is decisive.
+      'passwordpasswordpasswordpasswordpasswordpassword',
+      'correct-horse-battery-staple-correct-horse-battery',
       'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
       'abcabcabcabcabcabcabcabcabcabcabcabc',
+      // Valid hex encoding 32 bytes, but degenerate material.
+      'a'.repeat(64),
+      'ab'.repeat(32),
       'key-0000000000000000000000000000000000',
     ]) {
-      expect(() =>
-        buildConfig(parse({ NODE_ENV: 'test', AUTH_MODE: 'api-key', API_KEYS: weak }), {}),
-      ).toThrow('high-entropy');
+      expect(
+        () => buildConfig(parse({ NODE_ENV: 'test', AUTH_MODE: 'api-key', API_KEYS: weak }), {}),
+        weak,
+      ).toThrow('hex');
     }
   });
 
-  it('accepts randomly generated API keys', () => {
-    const random = randomBytes(32).toString('hex');
+  it('accepts generated hex keys, with or without a label', () => {
+    // Repeated to catch a label rule that consumes key material for some random draws.
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      const key = randomBytes(32).toString('hex');
+      expect(
+        () => buildConfig(parse({ NODE_ENV: 'test', AUTH_MODE: 'api-key', API_KEYS: key }), {}),
+        key,
+      ).not.toThrow();
+      expect(
+        () =>
+          buildConfig(
+            parse({ NODE_ENV: 'test', AUTH_MODE: 'api-key', API_KEYS: `prod_${key}` }),
+            {},
+          ),
+        key,
+      ).not.toThrow();
+    }
+  });
+
+  it('rejects well-formed hex that carries too few random bytes', () => {
     expect(() =>
-      buildConfig(parse({ NODE_ENV: 'test', AUTH_MODE: 'api-key', API_KEYS: random }), {}),
-    ).not.toThrow();
+      buildConfig(
+        parse({
+          NODE_ENV: 'test',
+          AUTH_MODE: 'api-key',
+          API_KEYS: randomBytes(16).toString('hex'),
+        }),
+        {},
+      ),
+    ).toThrow('64 hex characters');
+  });
+
+  it('supports rotation with multiple generated keys', () => {
+    const keys = [randomBytes(32).toString('hex'), randomBytes(32).toString('hex')].join(',');
+    const config = buildConfig(
+      parse({ NODE_ENV: 'test', AUTH_MODE: 'api-key', API_KEYS: keys }),
+      {},
+    );
+    expect(config.auth).toMatchObject({ mode: 'api-key' });
   });
 
   it('validates chunk bounds', () => {

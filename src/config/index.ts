@@ -228,34 +228,47 @@ const buildCorpusConfig = (env: Env, isProduction: boolean): CorpusConfig => {
 };
 
 /**
- * API keys must be high-entropy machine-generated credentials, not human-chosen passphrases.
- * Verification uses a fast keyed digest, which is only sound when the secret cannot be guessed.
+ * API keys are generated, never chosen, so this enforces a format contract rather than scoring
+ * "strength" the way a password policy would: a key is hex encoding at least 32 random bytes,
+ * optionally behind a short non-secret label such as `prod_`.
  *
- * These checks raise the floor rather than measure true entropy, which is not recoverable from an
- * arbitrary string: they reject short keys, tiny alphabets and repeated patterns. Generating keys
- * with `openssl rand -hex 32`, as the documentation instructs, is what actually guarantees strength.
+ * Hex is required rather than merely preferred, because it is the only encoding here that makes the
+ * contract decisive. Base64url's alphabet contains every letter, hyphen and underscore, so an
+ * encoded random blob is indistinguishable from a typed phrase, and a label cannot be told apart
+ * from key material. Hex admits neither problem: prose contains non-hex letters, and hex material
+ * contains no separator.
+ *
+ * Format still cannot reject a degenerate value, since 64 repeated `a` characters are valid hex, so
+ * constant and repeating material is rejected as well. Neither check measures entropy, which is not
+ * recoverable from a string; generating the key with `openssl rand -hex 32` is what makes it
+ * unguessable. These checks only ensure a key could not have been typed by a human.
  */
-const isRepeatedPattern = (value: string): boolean => {
-  for (let size = 1; size <= value.length / 2; size += 1) {
-    if (value.length % size !== 0) continue;
-    if (value.slice(0, size).repeat(value.length / size) === value) return true;
+const minimumKeyBytes = 32;
+
+/** Optional non-secret label used to identify a key in logs and secret scanners. */
+const keyLabelPattern = /^[a-z0-9][a-z0-9-]{0,31}[_-]/i;
+const hexPattern = /^[0-9a-f]+$/i;
+
+const isDegenerate = (material: string): boolean => {
+  for (let size = 1; size <= material.length / 2; size += 1) {
+    if (material.length % size !== 0) continue;
+    if (material.slice(0, size).repeat(material.length / size) === material) return true;
   }
   return false;
 };
 
-const minimumApiKeyLength = 32;
-const minimumDistinctCharacters = 12;
-
-const assertStrongApiKeys = (apiKeys: readonly string[]): void => {
+const assertGeneratedApiKeys = (apiKeys: readonly string[]): void => {
   for (const key of apiKeys) {
-    if (key.length < minimumApiKeyLength) {
+    // Hex material contains no separator, so stripping a label can never consume key material.
+    const material = key.replace(keyLabelPattern, '');
+    const valid =
+      hexPattern.test(material) &&
+      material.length >= minimumKeyBytes * 2 &&
+      !isDegenerate(material);
+    if (!valid) {
       throw new ConfigurationError(
-        `Every API key must be at least ${minimumApiKeyLength} characters`,
-      );
-    }
-    if (new Set(key).size < minimumDistinctCharacters || isRepeatedPattern(key)) {
-      throw new ConfigurationError(
-        'Every API key must be a high-entropy random value; generate one with `openssl rand -hex 32`',
+        `Every API key must be hex encoding at least ${minimumKeyBytes} random bytes ` +
+          '(64 hex characters); generate one with `openssl rand -hex 32`',
       );
     }
   }
@@ -273,7 +286,7 @@ export const buildConfig = (env: Env, processEnv: NodeJS.ProcessEnv = process.en
     if (env.API_KEYS.length === 0) {
       throw new ConfigurationError('AUTH_MODE=api-key requires API_KEYS');
     }
-    assertStrongApiKeys(env.API_KEYS);
+    assertGeneratedApiKeys(env.API_KEYS);
   }
 
   const corpus = buildCorpusConfig(env, isProduction);

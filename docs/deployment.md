@@ -106,5 +106,10 @@ Rotate the API key by adding the replacement to `API_KEYS`, deploying, moving cl
 the old key. Key Vault references are versionless; create a new revision or restart replicas after
 rotation.
 
+Every key must be hex encoding at least 32 random bytes, optionally behind a non-secret label such
+as `prod_`. Generate keys with `openssl rand -hex 32`. The application rejects anything else at
+startup, so a hand-written key would leave the revision failing its readiness probe; the bootstrap
+script validates a supplied `API_KEY` up front to catch that earlier.
+
 Destroy the example by deleting its generated resource group after confirming it contains no shared
 resources.

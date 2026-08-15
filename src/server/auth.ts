@@ -33,17 +33,18 @@ class DisabledAuthenticator implements Authenticator {
  * Compares fixed-width keyed digests instead of raw credentials, so comparison time never depends
  * on the presented key's length or content, and only non-reversible fingerprints are retained.
  *
- * A deliberately fast keyed hash is correct here, and a slow password KDF would be wrong:
+ * This service has no user accounts and no passwords. Credentials are generated API keys, which
+ * `buildConfig` requires to encode at least 32 random bytes, so a fast keyed hash is correct and a
+ * slow password KDF would be actively worse:
  *
- * - These are high-entropy machine-generated API keys, not human passphrases. `buildConfig` rejects
- *   low-entropy keys, so offline guessing is not the operative threat.
  * - Digests exist only in process memory under a random per-process pepper. They are never
- *   persisted or logged, so there is no stored-hash corpus to attack offline.
+ *   persisted or logged, so there is no stored-hash corpus to attack offline. Guessing is online
+ *   only, and is rate limited before and after verification.
  * - Verification runs on an unauthenticated request path. A per-request memory-hard KDF would turn
  *   the credential check into a CPU-exhaustion amplifier on a 0.25 CPU container.
  *
- * CodeQL's js/insufficient-password-hash rule assumes a stored low-entropy password hash; that
- * premise does not hold here. See .github/codeql/codeql-config.yml.
+ * CodeQL's js/insufficient-password-hash rule assumes a stored, human-chosen password hash. Neither
+ * half of that premise holds here. See .github/codeql/codeql-config.yml.
  */
 class ApiKeyAuthenticator implements Authenticator {
   private readonly pepper = randomBytes(32);

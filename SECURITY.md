@@ -24,37 +24,40 @@ the index.
 
 ### Threats and mitigations
 
-| Threat                                   | Mitigation                                                                                     |
-| ---------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Path traversal or corpus escape          | Canonical root, `realpath`, symlink rejection, traversal and control-character rejection       |
-| Secret exfiltration through the corpus   | Hidden files, `.env`, key/certificate and `*credentials*` patterns are never indexed           |
-| Script or attribute content indexed      | HTML is parsed with a tokenizer, not regexes, so raw-text elements and attributes never leak   |
-| Credential brute force or timing attack  | Fixed-width keyed HMAC digests, constant-time comparison, pre- and post-auth rate limits       |
-| Weak operator-chosen API keys            | Short keys, tiny alphabets and repeated patterns are rejected at startup                       |
-| Storage identity disclosure              | Identifiers are corpus-relative; account, container and blob paths never appear in responses   |
-| Prompt injection via document content    | Content is returned as evidence; instructions state it is untrusted data, never commands       |
-| Resource exhaustion during ingestion     | Depth, entry, document, byte, chunk, term, memory and time budgets, all deployment-configured  |
-| Resource exhaustion during search        | Candidate, result and output budgets, deadlines, concurrency caps and a bounded queue          |
-| Information disclosure through errors    | One bounded error model; no absolute paths, storage identity, content, queries or stacks       |
-| Information disclosure through telemetry | Metrics are safe aggregates; queries and content are never logged                              |
-| Stale or silently wrong evidence         | Explicit `degraded` status, index version and timestamp, and truthful skip and limit reporting |
-| Serving without a usable corpus          | Readiness requires a validated index; production fails readiness on an empty corpus            |
+| Threat                                   | Mitigation                                                                                      |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Path traversal or corpus escape          | Canonical root, `realpath`, symlink rejection, traversal and control-character rejection        |
+| Secret exfiltration through the corpus   | Hidden files, `.env`, key/certificate and `*credentials*` patterns are never indexed            |
+| Script or attribute content indexed      | HTML is parsed with a tokenizer, not regexes, so raw-text elements and attributes never leak    |
+| Credential brute force or timing attack  | Fixed-width keyed HMAC digests, constant-time comparison, pre- and post-auth rate limits        |
+| Weak operator-chosen API keys            | Keys must be hex encoding 32+ random bytes; anything typeable by a human is rejected at startup |
+| Storage identity disclosure              | Identifiers are corpus-relative; account, container and blob paths never appear in responses    |
+| Prompt injection via document content    | Content is returned as evidence; instructions state it is untrusted data, never commands        |
+| Resource exhaustion during ingestion     | Depth, entry, document, byte, chunk, term, memory and time budgets, all deployment-configured   |
+| Resource exhaustion during search        | Candidate, result and output budgets, deadlines, concurrency caps and a bounded queue           |
+| Information disclosure through errors    | One bounded error model; no absolute paths, storage identity, content, queries or stacks        |
+| Information disclosure through telemetry | Metrics are safe aggregates; queries and content are never logged                               |
+| Stale or silently wrong evidence         | Explicit `degraded` status, index version and timestamp, and truthful skip and limit reporting  |
+| Serving without a usable corpus          | Readiness requires a validated index; production fails readiness on an empty corpus             |
 
 ### Credential hashing
 
-API keys are verified with HMAC-SHA256 under a random per-process pepper, compared in constant time.
-A deliberately fast keyed hash is the correct choice here, and a slow password KDF would be worse:
+This service has no user accounts and no passwords. It authenticates generated API keys with
+HMAC-SHA256 under a random per-process pepper, compared in constant time. A deliberately fast keyed
+hash is correct here, and a slow password KDF would be worse:
 
-- These are high-entropy machine-generated keys, not human passphrases, and the configuration
-  rejects short keys, tiny alphabets and repeated patterns. Generate keys with
-  `openssl rand -hex 32`; that generation step, not the validator, is what guarantees strength.
+- Keys must be hex encoding at least 32 random bytes, which is a format contract rather than a
+  strength score. Prose contains non-hex letters, so a typed passphrase is rejected outright. The
+  check cannot measure entropy — generating the key with `openssl rand -hex 32` is what makes it
+  unguessable — but it does guarantee a key was not chosen by a human.
 - Digests live only in process memory and are never persisted or logged, so there is no stored-hash
-  corpus for an attacker to grind offline — the threat that slow KDFs exist to defeat.
+  corpus for an attacker to grind offline, which is the threat slow KDFs exist to defeat. Guessing
+  is online only, and is rate limited before and after verification.
 - Verification runs on an unauthenticated request path, so a per-request memory-hard KDF would turn
   the credential check into a CPU-exhaustion amplifier on a small container.
 
-CodeQL's `js/insufficient-password-hash` rule assumes a stored low-entropy password hash. That
-premise does not hold here, so the rule is excluded in `.github/codeql/codeql-config.yml` with this
+CodeQL's `js/insufficient-password-hash` rule assumes a stored, human-chosen password hash. Neither
+half of that premise holds, so the rule is excluded in `.github/codeql/codeql-config.yml` with this
 rationale recorded rather than silently suppressed.
 
 ### Explicit non-goals

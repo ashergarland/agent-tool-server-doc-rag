@@ -106,7 +106,8 @@ cp .env.example .env
 npm run dev
 ```
 
-API-key mode requires a randomly generated key. Weak keys are rejected at startup:
+API-key mode requires a generated hex key. An optional non-secret label such as `prod_` is allowed
+so keys are identifiable in logs; anything a human could have typed is rejected at startup:
 
 ```bash
 API_KEY="$(openssl rand -hex 32)"
@@ -205,9 +206,10 @@ answer.
 
 - Production refuses `AUTH_MODE=disabled` and rejects a relative or application-directory
   `DOCS_ROOT`.
-- API keys must be randomly generated; short keys, tiny alphabets and repeated patterns are rejected
-  at startup. They are compared as fixed-width keyed HMAC digests, and only non-reversible
-  fingerprints are retained.
+- API keys must be hex encoding at least 32 random bytes, exactly what `openssl rand -hex 32`
+  produces. This is a format contract, not a strength score: the server has no passwords, and a key
+  that a human could have typed is rejected at startup. Keys are compared as fixed-width keyed HMAC
+  digests, and only non-reversible fingerprints are retained.
 - HTML is parsed with a tokenizer rather than regexes, so script, style and attribute content never
   reaches the index.
 - Authentication is rate-limited before and after credential verification.
