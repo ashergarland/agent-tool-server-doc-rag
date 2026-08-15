@@ -39,6 +39,7 @@ the index.
 | Information disclosure through telemetry | Metrics are safe aggregates; queries and content are never logged                               |
 | Stale or silently wrong evidence         | Explicit `degraded` status, index version and timestamp, and truthful skip and limit reporting  |
 | Serving without a usable corpus          | Readiness requires a validated index; production fails readiness on an empty corpus             |
+| Unreproducible or drifting base image    | The base image is pinned by digest, and Dependabot proposes updates as reviewable pull requests |
 
 ### Credential hashing
 
@@ -59,6 +60,22 @@ hash is correct here, and a slow password KDF would be worse:
 CodeQL's `js/insufficient-password-hash` rule assumes a stored, human-chosen password hash. Neither
 half of that premise holds, so the rule is excluded in `.github/codeql/codeql-config.yml` with this
 rationale recorded rather than silently suppressed.
+
+### Base image and supply chain
+
+The Dockerfile pins `node:22-alpine` by digest, so a given commit always produces the same image and
+the shipped artifact can be audited. A moving tag would change underneath the build as Node patch
+releases and Alpine rebuilds land.
+
+Pinning is only safe with automation: a pinned image silently stops receiving CVE patches. Dependabot
+therefore proposes base image, action and dependency updates weekly as reviewable pull requests, and
+CI re-runs the container smoke test against each one. Treat a stalled Dependabot pull request as a
+security issue, not as noise.
+
+The base image is still pulled from Docker Hub in CI and by `az acr build` during provisioning. That
+is a deliberate availability tradeoff: mirroring the image would remove a rate-limited dependency,
+but an unsynced mirror is a worse failure mode than a retryable pull, because it stops delivering
+patches without failing loudly.
 
 ### Explicit non-goals
 
