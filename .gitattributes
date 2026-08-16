@@ -1,0 +1,18 @@
+# Normalize to LF in the repository and in every working tree, regardless of platform.
+#
+# Without this, a Windows checkout with core.autocrlf=true produces CRLF files that fail
+# `npm run format:check` on a clean clone, while Linux CI passes. It also matters for correctness:
+# the shell scripts and Dockerfile in this repository are executed inside Linux containers, where
+# CRLF line endings break interpreters.
+* text=auto eol=lf
+
+# Explicitly binary so they are never line-ending converted.
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.woff binary
+*.woff2 binary

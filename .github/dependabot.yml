@@ -11,6 +11,14 @@ updates:
       prefix: build
     labels:
       - dependencies
+    ignore:
+      # Digest and patch updates within the current LTS line are safe to automate. A Node major is
+      # not: Dependabot proposed jumping to 26 while it was still Current, and a release only
+      # reaches LTS in the October after it ships. Bump this deliberately when the next LTS lands,
+      # together with engines, @types/node, CI and the documented baseline.
+      - dependency-name: node
+        update-types:
+          - version-update:semver-major
 
   # Actions were several majors behind and being force-migrated off deprecated Node 20 before this
   # was added. Grouped so routine bumps arrive as one reviewable pull request.
@@ -41,3 +49,14 @@ updates:
         dependency-type: development
         patterns:
           - '*'
+    ignore:
+      # typescript-eslint pins a supported TypeScript range and lags new majors. Grouping an
+      # unsupported TypeScript with it produced an unresolvable peer conflict, so major TypeScript
+      # bumps wait until the linter declares support.
+      - dependency-name: typescript
+        update-types:
+          - version-update:semver-major
+      # Must track the Node runtime in the Dockerfile, not move independently.
+      - dependency-name: '@types/node'
+        update-types:
+          - version-update:semver-major

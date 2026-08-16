@@ -1,8 +1,12 @@
-# Pinned by digest so a given commit always builds the same image. `node:22-alpine` is a moving
+# Pinned by digest so a given commit always builds the same image. `node:24-alpine` is a moving
 # tag: Node patch releases and Alpine rebuilds change it underneath us, so the tag alone makes the
 # shipped artifact unreproducible and unauditable. Dependabot proposes digest bumps as reviewable
 # pull requests, which is what keeps CVE patches flowing; see .github/dependabot.yml.
-FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS build
+#
+# Node 24 is the Active LTS line. Major bumps are deliberate, not automatic: Node 26 does not reach
+# LTS until 2026-10-28, and shipping a Current release would put production on a runtime that still
+# takes breaking changes.
+FROM node:24-alpine@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43 AS build
 WORKDIR /workspace
 
 COPY package.json package-lock.json ./
@@ -13,7 +17,7 @@ RUN npm run build \
   && npm ci --omit=dev --ignore-scripts \
   && npm cache clean --force
 
-FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS runtime
+FROM node:24-alpine@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43 AS runtime
 ARG GIT_SHA=unknown
 ARG SERVICE_VERSION=0.0.0-dev
 ENV NODE_ENV=production \
