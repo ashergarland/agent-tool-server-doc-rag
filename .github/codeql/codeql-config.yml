@@ -1,0 +1,16 @@
+name: 'CodeQL configuration for agent-tool-server-doc-rag'
+
+paths-ignore:
+  # Fixture documents are deliberately adversarial corpus content, not application code.
+  - tests/fixtures/corpus
+
+query-filters:
+  # This service has no user accounts and no passwords. It authenticates generated API keys, which
+  # configuration requires to encode at least 32 random bytes (see assertGeneratedApiKeys in
+  # src/config/index.ts). Verification uses HMAC-SHA256 under a random per-process pepper, and the
+  # digests are never persisted or logged, so there is no stored hash to attack offline and the
+  # offline-guessing threat this rule addresses does not exist here. A per-request memory-hard KDF
+  # on an unauthenticated path would instead create a CPU-exhaustion amplifier.
+  # See the rationale on ApiKeyAuthenticator in src/server/auth.ts and SECURITY.md.
+  - exclude:
+      id: js/insufficient-password-hash

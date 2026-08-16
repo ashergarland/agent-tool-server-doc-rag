@@ -1,0 +1,43 @@
+version: 2
+
+# Pinning without automation is worse than a moving tag, because a pinned base image silently stops
+# receiving CVE patches. These updates are what make the digest pin in the Dockerfile safe.
+updates:
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+    labels:
+      - dependencies
+
+  # Actions were several majors behind and being force-migrated off deprecated Node 20 before this
+  # was added. Grouped so routine bumps arrive as one reviewable pull request.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+    labels:
+      - dependencies
+    groups:
+      actions:
+        patterns:
+          - '*'
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+    labels:
+      - dependencies
+    groups:
+      # Production dependencies are reviewed individually; tooling churn is not worth the noise.
+      dev-dependencies:
+        dependency-type: development
+        patterns:
+          - '*'

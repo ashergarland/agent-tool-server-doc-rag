@@ -1,14 +1,12 @@
-import type { AppConfig } from '../config/index.js';
-import type { DocumentationProvider } from '../provider/types.js';
-import { DocumentationService } from './documentation.js';
-import { Guardrails } from './guardrails.js';
+import type { IndexManager } from '../indexing/lifecycle.js';
+import type { DocumentationSearchService } from '../search/service.js';
 
 export interface Services {
-  readonly documentation: DocumentationService;
-  readonly guardrails: Guardrails;
+  readonly search: DocumentationSearchService;
+  readonly index: IndexManager;
 }
 
-export const createServices = (config: AppConfig, provider: DocumentationProvider): Services => {
-  const guardrails = new Guardrails(config);
-  return { guardrails, documentation: new DocumentationService(provider) };
-};
+export const createServices = (
+  index: IndexManager,
+  search: DocumentationSearchService,
+): Services => ({ index, search });

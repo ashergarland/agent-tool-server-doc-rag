@@ -1,0 +1,19 @@
+{
+  "errors": [
+    {
+      "code": "unauthorized",
+      "status": 401,
+      "description": "The request presented no credential or an unknown credential."
+    },
+    {
+      "code": "rate_limited",
+      "status": 429,
+      "description": "The caller exceeded its request quota or the search queue was saturated."
+    },
+    {
+      "code": "unavailable",
+      "status": 503,
+      "description": "No usable index exists, so no evidence can be returned."
+    }
+  ]
+}

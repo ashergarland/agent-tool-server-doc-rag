@@ -1,4 +1,5 @@
 import type { AppConfig } from '../config/index.js';
+import { serverInstructions } from '../tools/guidance.js';
 import type { RegisteredTool, ToolRegistry } from '../tools/registry.js';
 
 type JsonObject = Record<string, unknown>;
@@ -25,11 +26,13 @@ const errorResponses: JsonObject = Object.fromEntries(
   [
     [400, 'Invalid input'],
     [401, 'Missing or invalid credentials'],
-    [403, 'Mutation not permitted'],
+    [403, 'Not permitted'],
     [404, 'Unknown tool or resource'],
-    [429, 'Rate limited'],
+    [429, 'Rate limited or search queue full'],
     [500, 'Tool server failure'],
-    [502, 'Provider failure'],
+    [502, 'Corpus failure'],
+    [503, 'No usable index'],
+    [504, 'Search deadline exceeded'],
   ].map(([status, description]) => [
     String(status),
     {
@@ -43,12 +46,9 @@ const toolPath = (tool: RegisteredTool): JsonObject => ({
   post: {
     operationId: tool.name,
     summary: tool.summary,
-    description:
-      tool.kind === 'write'
-        ? `${tool.description}\n\nPreview with dryRun=true and require explicit confirmation before execution.`
-        : tool.description,
-    tags: [tool.kind],
-    'x-openai-isConsequential': tool.kind === 'write',
+    description: tool.description,
+    tags: ['read'],
+    'x-openai-isConsequential': false,
     requestBody: {
       required: true,
       content: { 'application/json': { schema: tool.inputJsonSchema } },
@@ -80,9 +80,20 @@ export const buildOpenApiDocument = (config: AppConfig, registry: ToolRegistry):
     '/health': {
       get: {
         operationId: 'health',
-        summary: 'Liveness and readiness probe.',
+        summary: 'Liveness probe. Does not consider index state.',
         security: [],
-        responses: { '200': { description: 'Service is healthy' } },
+        responses: { '200': { description: 'Process is alive' } },
+      },
+    },
+    '/ready': {
+      get: {
+        operationId: 'ready',
+        summary: 'Readiness probe. Requires a usable configured index.',
+        security: [],
+        responses: {
+          '200': { description: 'A usable index is serving searches' },
+          '503': { description: 'No usable index' },
+        },
       },
     },
     '/version': {
@@ -104,8 +115,15 @@ export const buildOpenApiDocument = (config: AppConfig, registry: ToolRegistry):
     '/tools': {
       get: {
         operationId: 'listTools',
-        summary: 'List every registered tool and JSON Schema.',
+        summary: 'List every registered tool, routing instructions and JSON Schema.',
         responses: { '200': { description: 'Tool catalogue' }, ...errorResponses },
+      },
+    },
+    '/metrics': {
+      get: {
+        operationId: 'metrics',
+        summary: 'Safe aggregate index and search counters.',
+        responses: { '200': { description: 'Aggregate counters' }, ...errorResponses },
       },
     },
     '/mcp': {
@@ -123,7 +141,7 @@ export const buildOpenApiDocument = (config: AppConfig, registry: ToolRegistry):
     info: {
       title: 'Agent Tool Server Doc RAG',
       version: config.service.version,
-      description: 'Local documentation retrieval generated from one typed tool registry.',
+      description: `Bounded lexical documentation retrieval generated from one typed tool registry. ${serverInstructions}`,
     },
     servers: [{ url: config.service.publicBaseUrl ?? `http://localhost:${config.http.port}` }],
     security: config.auth.mode === 'disabled' ? [] : [{ bearerAuth: [] }],
@@ -138,9 +156,6 @@ export const buildOpenApiDocument = (config: AppConfig, registry: ToolRegistry):
       },
     },
     paths,
-    tags: [
-      { name: 'read', description: 'Read-only tools.' },
-      { name: 'write', description: 'Confirmation-gated mutation tools.' },
-    ],
+    tags: [{ name: 'read', description: 'Read-only retrieval tools.' }],
   };
 };

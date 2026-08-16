@@ -15,9 +15,10 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -29,47 +30,153 @@ jobs:
       - run: npm run build
       - run: npm run openapi:emit
       - run: npm run metadata:validate
-      - uses: actions/upload-artifact@v4
+      - name: Retrieval evaluation report
+        run: npm run eval:retrieval
+      - uses: actions/upload-artifact@v7
         with:
           name: openapi
           path: openapi.json
 
   container:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      IMAGE: agent-tool-server-doc-rag:test
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          load: true
-          push: false
-          tags: agent-tool-server-doc-rag:test
-      - name: Smoke test
+      - uses: actions/checkout@v7
+
+      # Built with the daemon's integrated BuildKit rather than docker/setup-buildx-action. The
+      # buildx `docker-container` driver pulls moby/buildkit from Docker Hub on every run, which
+      # fails against anonymous pull rate limits and is unrelated to anything this project builds.
+      # Base image pulls still share that quota, so transient failures are retried.
+      - name: Build image
+        env:
+          DOCKER_BUILDKIT: '1'
         run: |
           set -euo pipefail
-          API_KEY='ci-only-key-0000000000000000000000000000000000000000000000000000'
+          for attempt in 1 2 3; do
+            if docker build --tag "$IMAGE" .; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              delay=$((attempt * 15))
+              echo "::warning::Image build attempt ${attempt} failed; retrying in ${delay}s"
+              sleep "$delay"
+            fi
+          done
+          echo '::error::Image build failed after 3 attempts'
+          exit 1
+
+      - name: Tool smoke test over an authenticated transport
+        run: |
+          set -euo pipefail
+          # Generated per run: no key material is committed, and the server requires hex keys.
+          API_KEY="$(openssl rand -hex 32)"
+
+          # A tiny read-only corpus, mounted exactly as a deployment would mount one.
+          mkdir -p corpus/guides
+          cat > corpus/guides/authentication.md <<'DOC'
+          # Authentication
+
+          ## Rotating keys
+
+          Add the replacement secret to API_KEYS, deploy the revision, migrate clients,
+          and only then remove the retired secret.
+          DOC
+
           docker run --rm -d --name tool-server -p 8080:8080 \
-            -e API_KEYS="$API_KEY" agent-tool-server-doc-rag:test
-          trap 'docker logs tool-server; docker stop tool-server' EXIT
-          for attempt in {1..30}; do
-            curl --fail --silent http://127.0.0.1:8080/health && break
+            -v "$PWD/corpus:/corpus:ro" \
+            -e API_KEYS="$API_KEY" \
+            -e CORPUS_SOURCE=filesystem \
+            -e DOCS_ROOT=/corpus \
+            "$IMAGE"
+          trap 'docker logs tool-server || true; docker stop tool-server || true' EXIT
+
+          ready=false
+          for _ in $(seq 1 60); do
+            if curl --fail --silent --max-time 5 http://127.0.0.1:8080/ready > /dev/null; then
+              ready=true
+              break
+            fi
+            # Fail immediately if the container died rather than waiting out the full timeout.
+            if [ -z "$(docker ps --quiet --filter name=tool-server)" ]; then
+              echo '::error::Container exited before reporting readiness'
+              exit 1
+            fi
             sleep 1
           done
-          curl --fail --silent http://127.0.0.1:8080/version
+          if [ "$ready" != true ]; then
+            echo '::error::Timed out waiting for readiness'
+            exit 1
+          fi
+
+          curl --fail --silent http://127.0.0.1:8080/health > /dev/null
+          curl --fail --silent http://127.0.0.1:8080/version > /dev/null
+
           test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
             http://127.0.0.1:8080/tools)" = 401
-          curl --fail --silent -H "x-api-key: $API_KEY" http://127.0.0.1:8080/tools
+
+          curl --fail --silent -H "x-api-key: $API_KEY" http://127.0.0.1:8080/tools \
+            | grep -q 'search_docs'
+
+          # Invoke the tool itself and require real evidence with provenance.
+          RESULT="$(curl --fail --silent -X POST \
+            -H "x-api-key: $API_KEY" -H 'content-type: application/json' \
+            -d '{"query":"rotate the API key","limit":3}' \
+            http://127.0.0.1:8080/tools/search_docs)"
+          echo "$RESULT"
+          echo "$RESULT" | grep -q '"status":"ok"'
+          echo "$RESULT" | grep -q 'guides/authentication.md'
+          echo "$RESULT" | grep -q '"startLine"'
+          # Absolute container paths must never leak into results.
+          if echo "$RESULT" | grep -q '/corpus/'; then
+            echo '::error::Result leaked an absolute corpus path'
+            exit 1
+          fi
+
+          # The image must run unprivileged.
           test "$(docker inspect --format '{{.Config.User}}' tool-server)" = node
+          test "$(docker exec tool-server id -u)" != 0
+
+      - name: Missing corpus stays not ready
+        run: |
+          set -euo pipefail
+          API_KEY="$(openssl rand -hex 32)"
+
+          docker run --rm -d --name tool-server-empty -p 8081:8080 \
+            -e API_KEYS="$API_KEY" "$IMAGE"
+          trap 'docker logs tool-server-empty || true; docker stop tool-server-empty || true' EXIT
+
+          live=false
+          for _ in $(seq 1 30); do
+            if curl --fail --silent --max-time 5 http://127.0.0.1:8081/health > /dev/null; then
+              live=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$live" != true ]; then
+            echo '::error::Container never became live'
+            exit 1
+          fi
+
+          # Liveness succeeds, readiness must not: an unconfigured corpus is never ready.
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            http://127.0.0.1:8081/ready)" = 503
 
   bicep:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install Bicep
         run: az bicep install
       - name: Build and lint Bicep
         run: |
+          set -euo pipefail
           az bicep build --file infra/main.bicep
           az bicep lint --file infra/main.bicep
           az bicep build-params --file infra/parameters/dev.bicepparam
+          for module in infra/modules/*.bicep; do
+            az bicep build --file "$module" --stdout > /dev/null
+          done

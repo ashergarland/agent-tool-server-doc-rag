@@ -2,5 +2,5 @@
   "id": "agent-tool-server-doc-rag",
   "repository": "https://github.com/ashergarland/agent-tool-server-doc-rag",
   "serverMetadata": "server.json",
-  "categories": ["developer-tools", "documentation"]
+  "categories": ["developer-tools", "documentation", "retrieval"]
 }

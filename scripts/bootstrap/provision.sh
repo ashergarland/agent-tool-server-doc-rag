@@ -29,6 +29,11 @@ KEY_VAULT_NAME="$(az deployment sub show --name "${DEPLOYMENT_NAME}-base" --quer
 if [[ -z "${API_KEY:-}" ]]; then
   API_KEY="$(openssl rand -hex 32)"
   printf 'Generated an API key. Retrieve it from Key Vault; it will not be printed.\n'
+elif [[ ! "$API_KEY" =~ ^([a-zA-Z0-9][a-zA-Z0-9-]{0,31}[_-])?[0-9a-fA-F]{64,}$ ]]; then
+  # Fail here rather than leaving a crash-looping container to report the same problem later.
+  printf 'API_KEY must be hex encoding at least 32 random bytes, optionally behind a label.\n' >&2
+  printf 'Generate one with: openssl rand -hex 32\n' >&2
+  exit 1
 fi
 
 for attempt in {1..12}; do
