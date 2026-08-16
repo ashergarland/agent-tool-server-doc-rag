@@ -1,6 +1,6 @@
 # Contributing
 
-Use Node.js 22 and install with `npm ci`.
+Use Node.js 24 and install with `npm ci`.
 
 ## Boundaries to preserve
 

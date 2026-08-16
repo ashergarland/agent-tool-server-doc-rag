@@ -71,7 +71,7 @@ one instance.
 
 ## Local use with VS Code and Copilot
 
-Node.js 22 is required.
+Node.js 24 is required.
 
 ```bash
 npm ci
