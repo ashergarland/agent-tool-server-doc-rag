@@ -31,7 +31,7 @@
     "url": "git+https://github.com/ashergarland/agent-tool-server-doc-rag.git"
   },
   "dependencies": {
-    "@azure/identity": "^4.13.1",
+    "@azure/identity": "^4.13.2",
     "@azure/storage-blob": "^12.33.0",
     "@fastify/rate-limit": "^11.2.0",
     "@modelcontextprotocol/sdk": "1.30.0",
