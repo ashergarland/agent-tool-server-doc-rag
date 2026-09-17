@@ -29,6 +29,7 @@ export default tseslint.config(
       'coverage/**',
       'openapi.json',
       'eslint.config.js',
+      'scripts/**/*.mjs',
       'tests/fixtures/corpus/**',
     ],
   },

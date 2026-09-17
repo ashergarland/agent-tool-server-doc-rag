@@ -1,32 +1,7 @@
+import { defineTool, type AnyToolDefinition } from '@agent-tool-platform/runtime/tools';
 import { z } from 'zod';
 import type { Services } from '../services/index.js';
 import { fieldDescriptions, searchDocsDescription } from './guidance.js';
-
-export interface ToolInvocationContext {
-  readonly requestId: string;
-  readonly principal: string;
-}
-
-export interface ToolDefinition<
-  InputSchema extends z.ZodType = z.ZodType,
-  OutputSchema extends z.ZodType = z.ZodType,
-> {
-  readonly name: string;
-  readonly title: string;
-  readonly summary: string;
-  readonly description: string;
-  readonly inputSchema: InputSchema;
-  readonly outputSchema: OutputSchema;
-  readonly handler: (
-    input: z.output<InputSchema>,
-    services: Services,
-    context: ToolInvocationContext,
-  ) => Promise<z.output<OutputSchema>>;
-}
-
-export const defineTool = <InputSchema extends z.ZodType, OutputSchema extends z.ZodType>(
-  definition: ToolDefinition<InputSchema, OutputSchema>,
-): ToolDefinition<InputSchema, OutputSchema> => definition;
 
 const searchResultSchema = z.object({
   id: z.string().min(1).max(64).describe(fieldDescriptions.resultId),
@@ -45,7 +20,7 @@ export const searchDocsOutputSchema = z.object({
   results: z.array(searchResultSchema).max(25).describe(fieldDescriptions.results),
   corpus: z
     .object({
-      sourceKind: z.enum(['filesystem', 'azure-blob', 'none']),
+      sourceKind: z.enum(['filesystem', 'none']),
       indexVersion: z.number().int().min(0).max(1_000_000_000),
       indexedAt: z.string().max(40).optional(),
       documentCount: z.number().int().min(0).max(1_000_000),
@@ -70,6 +45,19 @@ export const searchDocsTool = defineTool({
   title: 'Search the configured documentation corpus',
   summary: 'Retrieve the most relevant bounded chunks of the configured documentation corpus.',
   description: searchDocsDescription,
+  kind: 'read',
+  routing: {
+    useWhen: [
+      'you need stable facts, APIs, configuration, procedures, or examples from the configured documentation corpus',
+      'you need bounded passages with source and line provenance for citation',
+    ],
+    doNotUseWhen: [
+      'you need current web facts, a complete document read, arbitrary URL retrieval, generation, ingestion, or mutation',
+      'the required evidence belongs to a corpus that is not configured for this capability',
+    ],
+    scope: 'one configured read-only documentation corpus, with bounded results and output size',
+    changesState: false,
+  },
   inputSchema: z.object({
     query: z.string().trim().min(2).max(500).describe(fieldDescriptions.query),
     limit: z.number().int().min(1).max(10).default(5).describe(fieldDescriptions.limit),
@@ -82,7 +70,7 @@ export const searchDocsTool = defineTool({
       .describe(fieldDescriptions.sourcePrefix),
   }),
   outputSchema: searchDocsOutputSchema,
-  handler: async (input, services) => {
+  handler: async (input, services: Services) => {
     const response = await services.search.search({
       query: input.query,
       limit: input.limit,
@@ -100,4 +88,4 @@ export const searchDocsTool = defineTool({
   },
 });
 
-export const toolDefinitions = [searchDocsTool] as const satisfies readonly ToolDefinition[];
+export const capabilityTools: readonly AnyToolDefinition<Services>[] = [searchDocsTool];

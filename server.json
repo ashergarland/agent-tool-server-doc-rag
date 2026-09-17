@@ -6,5 +6,15 @@
     "url": "https://github.com/ashergarland/agent-tool-server-doc-rag",
     "source": "github"
   },
-  "version": "0.2.0"
+  "version": "0.0.0-development",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "agent-tool-server-doc-rag",
+      "version": "0.0.0-development",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
 }

@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-import type { BlobContainerReader, BlobDownload, BlobItem } from '../../src/corpus/blob.js';
 import { extensionOf } from '../../src/corpus/policy.js';
 import type {
   CorpusDocument,
@@ -71,59 +70,5 @@ export class MemoryCorpusSource implements CorpusSource {
       ? Buffer.from(content, 'utf8').subarray(0, options.maxBytes).toString('utf8')
       : content;
     return Promise.resolve({ text, truncated, revision: revisionOf(content) });
-  }
-}
-
-export interface FakeBlobOptions {
-  readonly pageSize?: number;
-  readonly listError?: () => Error;
-  readonly downloadError?: (name: string) => Error | undefined;
-  readonly missing?: readonly string[];
-}
-
-/** Fake container reader with paging and range downloads. No Azure account or network is used. */
-export class FakeBlobContainerReader implements BlobContainerReader {
-  public listedPrefixes: string[] = [];
-
-  public constructor(
-    private readonly blobs: Record<string, string>,
-    private readonly options: FakeBlobOptions = {},
-  ) {}
-
-  public async *list({ prefix }: { prefix: string }): AsyncIterable<BlobItem> {
-    this.listedPrefixes.push(prefix);
-    if (this.options.listError) throw this.options.listError();
-    const names = Object.keys(this.blobs)
-      .filter((name) => name.startsWith(prefix))
-      .sort();
-    const pageSize = this.options.pageSize ?? 2;
-    for (let start = 0; start < names.length; start += pageSize) {
-      const page = names.slice(start, start + pageSize);
-      // Yield page-by-page, mirroring the SDK's paged iteration.
-      await Promise.resolve();
-      for (const name of page) {
-        const content = this.blobs[name] ?? '';
-        yield {
-          name,
-          contentLength: Buffer.byteLength(content, 'utf8'),
-          etag: `"${revisionOf(content)}"`,
-          lastModified: '2026-01-01T00:00:00.000Z',
-        };
-      }
-    }
-  }
-
-  public download(name: string, options: { maxBytes: number }): Promise<BlobDownload | undefined> {
-    const failure = this.options.downloadError?.(name);
-    if (failure) return Promise.reject(failure);
-    if (this.options.missing?.includes(name)) return Promise.resolve(undefined);
-    const content = this.blobs[name];
-    if (content === undefined) return Promise.resolve(undefined);
-    const buffer = Buffer.from(content, 'utf8');
-    return Promise.resolve({
-      content: buffer.subarray(0, options.maxBytes),
-      truncated: buffer.length > options.maxBytes,
-      etag: `"${revisionOf(content)}"`,
-    });
   }
 }

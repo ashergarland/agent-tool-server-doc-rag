@@ -1,6 +1,7 @@
 /**
  * Shared corpus admission policy: which documents may enter an index, and how their identifiers are
- * normalized. Applies to every corpus source so filesystem and Blob corpora behave identically.
+ * normalized. It is independent of traversal and indexing so every admitted document follows the
+ * same policy.
  */
 export type DocumentFormat = 'markdown' | 'text' | 'html' | 'json' | 'yaml' | 'code';
 

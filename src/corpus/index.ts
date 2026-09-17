@@ -1,6 +1,4 @@
 import type { AppConfig } from '../config/index.js';
-import { createAzureBlobContainerReader } from './azure-client.js';
-import { AzureBlobCorpusSource } from './blob.js';
 import { FileSystemCorpusSource } from './filesystem.js';
 import type { CorpusSource } from './types.js';
 
@@ -10,16 +8,6 @@ export const createCorpusSource = (config: AppConfig): CorpusSource | undefined 
     return new FileSystemCorpusSource({
       rootPath: config.corpus.rootPath,
       limits: config.corpusLimits,
-    });
-  }
-  if (config.corpus.kind === 'azure-blob') {
-    return new AzureBlobCorpusSource({
-      prefix: config.corpus.prefix,
-      limits: config.corpusLimits,
-      reader: createAzureBlobContainerReader({
-        accountName: config.corpus.accountName,
-        containerName: config.corpus.containerName,
-      }),
     });
   }
   return undefined;

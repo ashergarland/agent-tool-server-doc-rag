@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
+import { rateLimited } from '@agent-tool-platform/runtime/errors';
 import type { SearchLimits } from '../config/index.js';
-import { rateLimited } from '../errors.js';
 import type { DocumentChunk } from '../indexing/chunking.js';
 import type { IndexManager, IndexSnapshot } from '../indexing/lifecycle.js';
 import type { ScoredChunk } from '../indexing/inverted-index.js';
