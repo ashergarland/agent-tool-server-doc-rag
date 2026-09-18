@@ -67,6 +67,150 @@ const fingerprint = (content: string): string =>
     .digest('hex');
 
 const sectionOf = (chunk: DocumentChunk): string | undefined => chunk.sectionPath.at(-1);
+const round = (value: number): number => Number(value.toFixed(4));
+
+const sameSectionPath = (left: readonly string[], right: readonly string[]): boolean =>
+  left.length === right.length && left.every((section, index) => section === right[index]);
+
+const mergedResultId = (
+  source: string,
+  sectionPath: readonly string[],
+  startLine: number,
+  endLine: number,
+  content: string,
+): string =>
+  createHash('sha256')
+    .update('doc-rag-merged-result-v1\0')
+    .update(JSON.stringify({ source, sectionPath, startLine, endLine, content }))
+    .digest('hex')
+    .slice(0, 16);
+
+const mergeAdjacentResult = (
+  previous: SearchResultItem,
+  chunk: DocumentChunk,
+  maxContentChars: number,
+): SearchResultItem | undefined => {
+  if (
+    previous.source !== chunk.source ||
+    previous.truncated ||
+    chunk.truncated ||
+    !sameSectionPath(previous.sectionPath, chunk.sectionPath) ||
+    previous.startLine < 1 ||
+    chunk.startLine < 1 ||
+    previous.endLine < previous.startLine ||
+    chunk.endLine < chunk.startLine
+  ) {
+    return undefined;
+  }
+
+  const chunkBeforePrevious = chunk.endLine + 1 === previous.startLine;
+  const previousBeforeChunk = previous.endLine + 1 === chunk.startLine;
+  if (!chunkBeforePrevious && !previousBeforeChunk) return undefined;
+
+  const content = chunkBeforePrevious
+    ? `${chunk.content}\n${previous.content}`
+    : `${previous.content}\n${chunk.content}`;
+  if (content.length > maxContentChars) return undefined;
+
+  const startLine = Math.min(previous.startLine, chunk.startLine);
+  const endLine = Math.max(previous.endLine, chunk.endLine);
+  return {
+    ...previous,
+    id: mergedResultId(previous.source, previous.sectionPath, startLine, endLine, content),
+    startLine,
+    endLine,
+    content,
+  };
+};
+
+export const selectSearchResults = (
+  matches: readonly ScoredChunk[],
+  best: number,
+  limit: number,
+  limits: SearchLimits,
+  warnings: Set<SearchWarning>,
+): { results: SearchResultItem[]; truncated: boolean } => {
+  const relativeFloor = best * limits.relativeCutoff;
+  const results: SearchResultItem[] = [];
+  const perSource = new Map<string, number>();
+  const seen = new Set<string>();
+  let budget = limits.maxTotalChars;
+  let truncated = false;
+
+  for (const match of matches) {
+    if (results.length >= limit) {
+      truncated = true;
+      break;
+    }
+    if (match.score < limits.minScore || match.score < relativeFloor) {
+      truncated = truncated || matches.length > results.length;
+      break;
+    }
+    const used = perSource.get(match.chunk.source) ?? 0;
+    if (used >= limits.maxResultsPerSource) continue;
+
+    const key = fingerprint(match.chunk.content);
+    if (seen.has(key)) continue;
+
+    const previous = results.at(-1);
+    if (previous) {
+      const merged = mergeAdjacentResult(previous, match.chunk, limits.maxContentChars);
+      if (merged) {
+        const addedCharacters = merged.content.length - previous.content.length;
+        if (addedCharacters <= budget) {
+          results[results.length - 1] = {
+            ...merged,
+            score: Math.max(previous.score, round(match.score)),
+          };
+          budget -= addedCharacters;
+          seen.add(key);
+          seen.add(fingerprint(merged.content));
+          continue;
+        }
+      }
+    }
+
+    let content = match.chunk.content;
+    let contentTruncated = match.chunk.truncated;
+    if (content.length > limits.maxContentChars) {
+      content = content.slice(0, limits.maxContentChars);
+      contentTruncated = true;
+      warnings.add('content_truncated');
+    }
+    if (content.length > budget) {
+      content = content.slice(0, Math.max(0, budget));
+      contentTruncated = true;
+      truncated = true;
+      warnings.add('results_truncated');
+      if (content.trim().length === 0) break;
+    }
+    budget -= content.length;
+    if (match.chunk.truncated) warnings.add('document_truncated');
+
+    seen.add(key);
+    perSource.set(match.chunk.source, used + 1);
+    const section = sectionOf(match.chunk);
+    results.push({
+      id: match.chunk.id,
+      source: match.chunk.source,
+      ...(section ? { section } : {}),
+      sectionPath: match.chunk.sectionPath,
+      startLine: match.chunk.startLine,
+      endLine: match.chunk.endLine,
+      content,
+      score: round(match.score),
+      truncated: contentTruncated,
+    });
+    if (budget <= 0) {
+      truncated = true;
+      warnings.add('results_truncated');
+      break;
+    }
+  }
+
+  if (truncated) warnings.add('results_truncated');
+  return { results, truncated };
+};
 
 /**
  * Applies retrieval policy on top of the raw lexical index: evidence thresholds, redundancy
@@ -177,7 +321,13 @@ export class DocumentationSearchService {
       );
     }
 
-    const { results, truncated } = this.select(outcome.matches, best, limit, warnings);
+    const { results, truncated } = selectSearchResults(
+      outcome.matches,
+      best,
+      limit,
+      this.limits,
+      warnings,
+    );
     const measurement = measureContext(results.map((result) => result.content));
     const status: SearchStatus =
       snapshot.state === 'degraded' || outcome.timedOut ? 'degraded' : 'ok';
@@ -200,94 +350,6 @@ export class DocumentationSearchService {
     };
   }
 
-  private select(
-    matches: readonly ScoredChunk[],
-    best: number,
-    limit: number,
-    warnings: Set<SearchWarning>,
-  ): { results: SearchResultItem[]; truncated: boolean } {
-    const relativeFloor = best * this.limits.relativeCutoff;
-    const results: SearchResultItem[] = [];
-    const perSource = new Map<string, number>();
-    const seen = new Set<string>();
-    let budget = this.limits.maxTotalChars;
-    let truncated = false;
-
-    for (const match of matches) {
-      if (results.length >= limit) {
-        truncated = true;
-        break;
-      }
-      if (match.score < this.limits.minScore || match.score < relativeFloor) {
-        truncated = truncated || matches.length > results.length;
-        break;
-      }
-      const used = perSource.get(match.chunk.source) ?? 0;
-      if (used >= this.limits.maxResultsPerSource) continue;
-
-      const key = fingerprint(match.chunk.content);
-      if (seen.has(key)) continue;
-
-      // Adjacent chunks from the same source are merged instead of returned as redundant evidence.
-      const previous = results.at(-1);
-      if (
-        previous &&
-        previous.source === match.chunk.source &&
-        match.chunk.startLine <= previous.endLine + 1 &&
-        previous.content.length + match.chunk.content.length <= this.limits.maxContentChars
-      ) {
-        results[results.length - 1] = {
-          ...previous,
-          endLine: Math.max(previous.endLine, match.chunk.endLine),
-          content: `${previous.content}\n\n${match.chunk.content}`,
-          score: Math.max(previous.score, round(match.score)),
-        };
-        seen.add(key);
-        continue;
-      }
-
-      let content = match.chunk.content;
-      let contentTruncated = match.chunk.truncated;
-      if (content.length > this.limits.maxContentChars) {
-        content = content.slice(0, this.limits.maxContentChars);
-        contentTruncated = true;
-        warnings.add('content_truncated');
-      }
-      if (content.length > budget) {
-        content = content.slice(0, Math.max(0, budget));
-        contentTruncated = true;
-        truncated = true;
-        warnings.add('results_truncated');
-        if (content.trim().length === 0) break;
-      }
-      budget -= content.length;
-      if (match.chunk.truncated) warnings.add('document_truncated');
-
-      seen.add(key);
-      perSource.set(match.chunk.source, used + 1);
-      const section = sectionOf(match.chunk);
-      results.push({
-        id: match.chunk.id,
-        source: match.chunk.source,
-        ...(section ? { section } : {}),
-        sectionPath: match.chunk.sectionPath,
-        startLine: match.chunk.startLine,
-        endLine: match.chunk.endLine,
-        content,
-        score: round(match.score),
-        truncated: contentTruncated,
-      });
-      if (budget <= 0) {
-        truncated = true;
-        warnings.add('results_truncated');
-        break;
-      }
-    }
-
-    if (truncated) warnings.add('results_truncated');
-    return { results, truncated };
-  }
-
   private empty(
     status: SearchStatus,
     corpus: SearchResponse['corpus'],
@@ -306,5 +368,3 @@ export class DocumentationSearchService {
     };
   }
 }
-
-const round = (value: number): number => Number(value.toFixed(4));

@@ -1,7 +1,7 @@
 # D4 migration boundary
 
 This repository migrated from a self-hosted application shell to the thin-capability shape from
-`ashergarland/agent-tool-server-template@db42b31a16ba0fa41066edac331b71497b3a9c8c`.
+`ashergarland/agent-tool-server-template@4b5a5d93c99614a6ca64d65e10f56918c45f1472`.
 
 Agent Tool Platform is pinned to
 `ashergarland/agent-tool-platform@98ec8162fb11d5c04aee9e6f7b3625a472a0180d`.

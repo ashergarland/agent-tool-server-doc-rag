@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
-import { lstat, open, opendir, realpath, stat } from 'node:fs/promises';
-import { relative, resolve, sep } from 'node:path';
+import { RootBoundary, type ConfinedOpenedFile } from '@agent-tool-platform/runtime/fs';
+import { lstat, opendir, realpath, stat } from 'node:fs/promises';
+import { relative, resolve } from 'node:path';
 import type { CorpusLimits } from '../config/index.js';
 import {
   extensionOf,
@@ -23,11 +24,14 @@ export interface FileSystemCorpusSourceOptions {
   readonly limits: CorpusLimits;
 }
 
-const revisionOf = (sizeBytes: number, modifiedMs: number): string =>
+const metadataRevisionOf = (sizeBytes: number, modifiedMs: number): string =>
   createHash('sha256')
     .update(`${sizeBytes}:${Math.trunc(modifiedMs)}`)
     .digest('hex')
     .slice(0, 16);
+
+const contentRevisionOf = (sizeBytes: number, content: Buffer): string =>
+  createHash('sha256').update(`${sizeBytes}:`).update(content).digest('hex').slice(0, 16);
 
 const decode = (buffer: Buffer, truncated: boolean): string | undefined => {
   const strict = new TextDecoder('utf-8', { fatal: true });
@@ -41,14 +45,47 @@ const decode = (buffer: Buffer, truncated: boolean): string | undefined => {
   return undefined;
 };
 
+const readOpenedFile = async (
+  opened: ConfinedOpenedFile,
+  maxBytes: number,
+  signal?: AbortSignal,
+): Promise<Buffer> => {
+  signal?.throwIfAborted();
+  const readLimit = Math.min(opened.sizeBytes, maxBytes);
+  if (readLimit === 0) return Buffer.alloc(0);
+
+  const buffer = Buffer.allocUnsafe(readLimit);
+  let offset = 0;
+  const stream = opened.createReadStream({
+    highWaterMark: Math.min(64 * 1_024, readLimit),
+    ...(signal ? { signal } : {}),
+  });
+  for await (const chunk of stream) {
+    signal?.throwIfAborted();
+    if (!Buffer.isBuffer(chunk)) throw new Error('Confined corpus streams must emit buffers');
+    const acceptedBytes = Math.min(chunk.byteLength, readLimit - offset);
+    chunk.copy(buffer, offset, 0, acceptedBytes);
+    offset += acceptedBytes;
+    if (offset >= readLimit) break;
+  }
+  return buffer.subarray(0, offset);
+};
+
 /**
  * Reads a single canonical filesystem root. Symbolic links, traversal, ignored paths and
  * unsupported extensions never enter the corpus, and identifiers are always root-relative.
  */
 export class FileSystemCorpusSource implements CorpusSource {
   public readonly kind = 'filesystem' as const;
+  private readonly boundary: RootBoundary;
 
-  public constructor(private readonly options: FileSystemCorpusSourceOptions) {}
+  public constructor(private readonly options: FileSystemCorpusSourceOptions) {
+    this.boundary = new RootBoundary({
+      root: options.rootPath,
+      requireRegularFile: true,
+      maxFileBytes: options.limits.maxDocumentBytes,
+    });
+  }
 
   public async *list(options: CorpusEnumerationOptions = {}): AsyncIterable<CorpusDocument> {
     const root = await this.canonicalRoot();
@@ -59,39 +96,34 @@ export class FileSystemCorpusSource implements CorpusSource {
     document: CorpusDocument,
     options: CorpusReadOptions,
   ): Promise<CorpusReadResult | undefined> {
-    const root = await this.canonicalRoot();
-    const absolute = resolve(root, document.id);
-    if (absolute !== root && !absolute.startsWith(`${root}${sep}`)) return undefined;
-
+    options.signal?.throwIfAborted();
     const maxBytes = Math.max(1, options.maxBytes);
-    const linkStats = await lstat(absolute).catch(() => undefined);
-    if (!linkStats || linkStats.isSymbolicLink() || !linkStats.isFile()) return undefined;
-    let handle;
+    let opened: ConfinedOpenedFile;
     try {
-      handle = await open(absolute, 'r');
+      opened = await this.boundary.openFile(document.id, { previewBytes: 0 });
     } catch {
+      options.signal?.throwIfAborted();
       return undefined;
     }
+
     try {
-      const stats = await handle.stat();
-      if (!stats.isFile()) return undefined;
-      const buffer = Buffer.alloc(maxBytes + 1);
-      const { bytesRead } = await handle.read(buffer, 0, maxBytes + 1, 0);
+      if (opened.relativePath !== document.id) return undefined;
+      const content = await readOpenedFile(opened, maxBytes, options.signal);
       options.signal?.throwIfAborted();
-      const truncated = bytesRead > maxBytes;
-      const content = buffer.subarray(0, truncated ? maxBytes : bytesRead);
+      const truncated = opened.sizeBytes > maxBytes && content.byteLength === maxBytes;
       if (looksBinary(content)) return undefined;
       const text = decode(content, truncated);
       if (text === undefined) return undefined;
       return {
         text,
         truncated,
-        revision: revisionOf(stats.size, stats.mtimeMs),
+        revision: contentRevisionOf(opened.sizeBytes, content),
       };
     } catch {
+      options.signal?.throwIfAborted();
       return undefined;
     } finally {
-      await handle.close().catch(() => undefined);
+      await opened.close();
     }
   }
 
@@ -205,7 +237,7 @@ export class FileSystemCorpusSource implements CorpusSource {
         id: identifier,
         extension,
         sizeBytes: entryStats.size,
-        revision: revisionOf(entryStats.size, entryStats.mtimeMs),
+        revision: metadataRevisionOf(entryStats.size, entryStats.mtimeMs),
         modifiedAt: new Date(entryStats.mtimeMs).toISOString(),
       };
     }

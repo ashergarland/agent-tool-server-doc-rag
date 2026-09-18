@@ -45,9 +45,9 @@ security workflows, and release mechanics.
 
 The integration is pinned to:
 
-- D4 template `db42b31a16ba0fa41066edac331b71497b3a9c8c`
+- D4 template `4b5a5d93c99614a6ca64d65e10f56918c45f1472`
 - Agent Tool Platform `98ec8162fb11d5c04aee9e6f7b3625a472a0180d`
-- `@agent-tool-platform/runtime` and `@agent-tool-platform/testkit` `0.1.2`
+- `@agent-tool-platform/runtime` and `@agent-tool-platform/testkit` `0.1.3`
 
 ## Run the capability
 
