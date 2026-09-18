@@ -55,15 +55,12 @@ export const evaluate = async (
 ): Promise<EvaluationReport> => {
   const config = buildConfig(
     envSchema.parse({
-      NODE_ENV: 'test',
-      AUTH_MODE: 'disabled',
       CORPUS_SOURCE: 'filesystem',
       DOCS_ROOT: fixtureRoot,
       CORPUS_WATCH: false,
       SEARCH_ALGORITHM: algorithm,
       ...(minScore === undefined ? {} : { SEARCH_MIN_SCORE: minScore }),
     }),
-    {},
   );
   const source = new FileSystemCorpusSource({
     rootPath: fixtureRoot,

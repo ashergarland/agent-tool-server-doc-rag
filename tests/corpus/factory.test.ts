@@ -19,18 +19,6 @@ describe('corpus factory', () => {
     expect(source?.kind).toBe('filesystem');
   });
 
-  it('builds a blob source for a blob corpus', () => {
-    const source = createCorpusSource(
-      testConfig({
-        CORPUS_SOURCE: 'azure-blob',
-        DOCS_ROOT: undefined,
-        AZURE_STORAGE_ACCOUNT_NAME: 'corpusaccount',
-        AZURE_STORAGE_CONTAINER: 'corpus',
-      }),
-    );
-    expect(source?.kind).toBe('azure-blob');
-  });
-
   it('builds no source when no corpus is configured', () => {
     expect(
       createCorpusSource(testConfig({ CORPUS_SOURCE: 'none', DOCS_ROOT: undefined })),

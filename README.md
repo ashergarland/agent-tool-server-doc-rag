@@ -1,162 +1,150 @@
 # Agent Tool Server Doc RAG
 
-Bounded lexical retrieval over **one** documentation corpus, exposed through stdio MCP, stateless
-Streamable HTTP MCP, and HTTP/OpenAPI.
+Bounded lexical retrieval over one configured documentation corpus, packaged as a thin
+[Agent Tool Platform](https://github.com/ashergarland/agent-tool-platform) capability.
 
-**This server retrieves evidence. The caller generates the answer.** It returns the smallest set of
-relevant, cited chunks instead of whole documents, so an agent can ground a response without loading
-an entire documentation set into its context window.
+**Doc RAG retrieves evidence; the caller generates the answer.** It returns the smallest relevant
+passages with citations instead of loading whole documents into an agent context.
 
-## What it deliberately does not do
+## Deliberate boundaries
 
-It has no generation, no embeddings, no vector database, no web search, no arbitrary URL fetching,
-no uploads, no document management, and no mutation of any kind. There is exactly one read-only
-tool. If you need any of the above, this is the wrong component.
+This capability has no generation, embeddings, vector database, web search, arbitrary URL fetch,
+upload, document-management, or mutation path. It exposes one read-only tool: `search_docs`.
 
-## Included contract
+Document Optimizer and Doc RAG remain separate:
 
-| Method            | Path                | Authentication | Purpose                                       |
-| ----------------- | ------------------- | -------------- | --------------------------------------------- |
-| `GET`             | `/health`           | Public         | Liveness only; ignores index state            |
-| `GET`             | `/ready`            | Public         | Readiness; requires a usable configured index |
-| `GET`             | `/version`          | Public         | Build and capability metadata                 |
-| `GET`             | `/openapi.json`     | Public         | OpenAPI 3.1 generated from the registry       |
-| `GET`             | `/tools`            | Required       | Tool catalogue, routing instructions, schemas |
-| `GET`             | `/metrics`          | Required       | Safe aggregate counters                       |
-| `POST`            | `/tools/{toolName}` | Required       | Invoke one registered tool                    |
-| `GET/POST/DELETE` | `/mcp`              | Required       | Stateless Streamable HTTP MCP                 |
+- Document Optimizer prepares agent-native documents and representations.
+- Doc RAG indexes an already prepared corpus and retrieves relevant portions.
 
-[`src/tools/definitions.ts`](src/tools/definitions.ts) is the single source of truth. Zod schemas
-drive runtime validation, MCP registration, JSON Schema, and OpenAPI operations. Do not define
-transport-specific tool lists.
+This migration does not absorb document preparation or introduce a new ingestion product.
 
-## Breaking change before 1.0
-
-`search_local_docs` is now **`search_docs`**. The old name is gone, not aliased. The rename is
-deliberate: hosted corpora are not local, so the previous name described the deployment incorrectly.
-This project is pre-1.0 and this break is not backwards compatible. Update any caller, registry
-entry, or prompt that referenced `search_local_docs`.
-
-The response shape also changed. It is no longer a bare `{ results }` array; every response now
-carries retrieval status, corpus identity, counts, truncation and warnings.
-
-## Architecture
+## D4 architecture
 
 ```text
-stdio MCP | Streamable HTTP MCP | HTTP OpenAPI
-                      |
-                 ToolRegistry            (one tool, one schema, all transports)
-                      |
-           DocumentationSearchService     (thresholds, dedup, diversity, budgets, deadline, queue)
-                      |
-                 IndexManager             (states, atomic swap, last-good, refresh, cancellation)
-                      |
-     ingestion -> chunking -> inverted index (BM25 / TF-IDF)
-                      |
-                 CorpusSource             (FileSystemCorpusSource | AzureBlobCorpusSource)
+Agent Tool Platform stdio / HTTP / MCP / OpenAPI
+                         |
+                    search_docs
+                         |
+           DocumentationSearchService
+      thresholds | diversity | budgets | deadlines
+                         |
+                   IndexManager
+       atomic swap | last-good | refresh | readiness
+                         |
+       ingestion -> chunking -> lexical index
+                    BM25 / TF-IDF
+                         |
+                 filesystem corpus source
 ```
 
-- Transports contain no retrieval or corpus logic.
-- The corpus port, index lifecycle, and measurement helpers contain no ranking-specific code.
-- One process serves exactly one corpus and one authorization boundary.
+The capability owns corpus policy, adapters, ingestion, chunking, scoring, retrieval selection,
+provenance, index lifecycle, and corpus readiness. Platform owns application assembly, generic
+configuration, authentication, HTTP/MCP transports, OpenAPI, error projection, rate limiting,
+logging, readiness aggregation, shutdown, conformance, metadata validation, packaging workflows,
+security workflows, and release mechanics.
 
-## The one-corpus boundary
+The integration is pinned to:
 
-A process indexes one filesystem root **or** one private Blob container prefix. Every authenticated
-principal on a hosted instance shares that corpus and its authorization. There are no per-caller
-ACLs and no caller-selected containers.
+- D4 template `4b5a5d93c99614a6ca64d65e10f56918c45f1472`
+- Agent Tool Platform `98ec8162fb11d5c04aee9e6f7b3625a472a0180d`
+- `@agent-tool-platform/runtime` and `@agent-tool-platform/testkit` `0.1.3`
 
-If two audiences must not see the same documents, run two deployments. Do not attempt to partition
-one instance.
+## Run the capability
 
-## Local use with VS Code and Copilot
-
-Node.js 24 is required.
+Node.js 22 or newer is required. CI and deployment-contract checks use Node.js 22.
 
 ```bash
 npm ci
 npm run build
 ```
 
-Register the stdio server, pointing `DOCS_ROOT` at the directory you want indexed:
+Point `DOCS_ROOT` at an existing corpus and run the stdio entrypoint:
+
+```bash
+CORPUS_SOURCE=filesystem DOCS_ROOT=/absolute/path/to/docs npm run mcp:stdio
+```
+
+For VS Code or another MCP client, launch the installed executable and provide the same environment:
 
 ```json
 {
   "servers": {
     "doc-rag": {
       "type": "stdio",
-      "command": "node",
-      "args": ["/absolute/path/to/agent-tool-server-doc-rag/dist/mcp/stdio.js"],
+      "command": "agent-tool-doc-rag",
       "env": {
         "CORPUS_SOURCE": "filesystem",
-        "DOCS_ROOT": "/absolute/path/to/your/docs"
+        "DOCS_ROOT": "/absolute/path/to/docs"
       }
     }
   }
 }
 ```
 
-Local stdio runs with authentication disabled because the client process boundary is the security
-boundary. It never listens on a network port.
+Stdio is a local process boundary. It opens no network listener and Platform disables network
+authentication for this entrypoint.
 
-For HTTP during development:
+## Truthful profiles
 
-```bash
-cp .env.example .env
-npm run dev
-```
+[`capability-profiles.json`](capability-profiles.json) declares one `local-filesystem-package`
+profile. It reads a caller-selected local corpus root through the local stdio process boundary.
 
-API-key mode requires a generated hex key. An optional non-secret label such as `prod_` is allowed
-so keys are identifiable in logs; anything a human could have typed is rejected at startup:
+There is no hosted profile, container image, or capability-owned cloud infrastructure. A supported
+data source is not evidence of a deployed hosted service. Hosted execution can be added only with a
+real corpus source, authenticated access, deployment evidence, rollback, and a profile that
+truthfully models those requirements.
 
-```bash
-API_KEY="$(openssl rand -hex 32)"
-AUTH_MODE=api-key API_KEYS="$API_KEY" DOCS_ROOT=./docs npm run dev
-curl -H "x-api-key: $API_KEY" http://localhost:8080/tools
-```
+## Corpus and index lifecycle
 
-## Hosted use with Azure Blob Storage
+One process serves one corpus and one authorization boundary. The index builds asynchronously:
 
-Set the corpus from deployment configuration only:
+1. bounded metadata enumeration and reads;
+2. format-aware, provenance-preserving chunking;
+3. immutable lexical-index construction;
+4. validation and atomic swap;
+5. background filesystem watch or bounded metadata reconciliation when configured.
 
-```bash
-CORPUS_SOURCE=azure-blob
-AZURE_STORAGE_ACCOUNT_NAME=yourcorpusaccount
-AZURE_STORAGE_CONTAINER=corpus
-AZURE_STORAGE_PREFIX=docs/
-```
+A failed refresh preserves the last validated index and reports `degraded`. A first build failure
+reports not-ready and cannot return evidence.
 
-The container must be private, and the app's managed identity needs **Storage Blob Data Reader
-scoped to that container** — not to the account or subscription. Connection strings, SAS tokens and
-account keys are rejected at startup; supplying one is a configuration error, not a fallback.
+### Liveness is not retrieval readiness
 
-## Source formats
+Platform process lifecycle state and corpus readiness are intentionally distinct. A process may be
+alive while the index is building, absent, empty, or failed.
 
-Markdown, plain text, HTML, JSON, YAML, and common source code. Formats that cannot be segmented
-reliably (PDF, Office documents, images, archives) are skipped rather than guessed at.
+The `corpus-index` readiness contributor reports:
 
-Ignored by default: `.git`, `node_modules`, caches, build output, hidden entries, and common secret
-files such as `.env`, `*.pem`, and `*credentials*`. Symbolic links, traversal, absolute paths and
-control characters never enter the index.
+| Index condition                    | Readiness   | Retrieval behavior                                |
+| ---------------------------------- | ----------- | ------------------------------------------------- |
+| validated non-empty current index  | `ready`     | `status: ok` or `no_match`, depending on evidence |
+| last-good index after refresh fail | `degraded`  | `status: degraded` with `stale_index`             |
+| build in progress                  | `not_ready` | `status: unavailable` with `index_building`       |
+| no configured corpus               | `not_ready` | `status: unavailable` with `index_not_configured` |
+| empty index                        | `not_ready` | `status: no_match` with `corpus_empty`            |
+| failed first build                 | `not_ready` | `status: unavailable` with a safe corpus warning  |
 
-## Indexing, refresh, and cold starts
+Not-ready responses are deterministic and model-visible. The capability never returns a
+success-shaped empty result merely because its process started.
 
-The index builds asynchronously at startup; the process is live immediately but not ready until a
-usable index exists. Candidate indexes are validated and swapped in atomically, and a failed refresh
-keeps serving the last good index while reporting `degraded`.
+## Source formats and admission policy
 
-Filesystem corpora use debounced watching plus bounded reconciliation; Blob corpora poll a bounded
-metadata manifest. `CORPUS_REFRESH_INTERVAL_MS=0` disables background refresh. There is no
-model-facing refresh tool — refresh is an operational concern.
+Markdown, plain text, HTML, JSON, YAML, and common source-code formats are supported. PDF, Office
+documents, images, archives, binary data, and formats that cannot be segmented reliably are
+skipped.
 
-Use `minReplicas=1` for predictable readiness. With scale-to-zero, every cold start re-reads and
-re-indexes the corpus, so the first request after idle waits for a full build.
+Ignored by policy include hidden entries, `.git`, dependency/build/cache directories, `.env`,
+private keys, certificates, and credential-like file names. Filesystem roots are canonicalized;
+symbolic links, traversal, absolute result identifiers, control characters, and root escapes never
+enter the index.
 
-## Ranking, scores, and limits
+## Chunking, ranking, and limits
 
-BM25 is the default because it wins the committed evaluation, not by preference. Scores are
-normalized to the share of attainable evidence, so one threshold behaves consistently regardless of
-corpus size:
+Chunking follows headings, paragraphs, structured-data members, and source declarations while
+preserving source-relative line ranges. Over-long text splits on Unicode grapheme boundaries.
+
+BM25 is the default because it wins the committed deterministic evaluation. TF-IDF remains
+available. Scores are normalized to a `0..1` share of attainable lexical evidence so one threshold
+is useful across corpus sizes.
 
 | Threshold | BM25 recall@5 | BM25 nDCG@5 | TF-IDF recall@5 | TF-IDF nDCG@5 |
 | --------- | ------------- | ----------- | --------------- | ------------- |
@@ -165,99 +153,73 @@ corpus size:
 | 0.30      | 1.000         | 0.936       | 0.917           | 0.852         |
 | 0.40      | 0.917         | 0.852       | 0.833           | 0.801         |
 
-Neither algorithm produced a false positive on the no-match cases at any threshold. BM25 holds
-perfect recall from 0.10 through 0.35, while TF-IDF starts degrading at 0.30, so BM25 is the default
-and `SEARCH_MIN_SCORE` defaults to the middle of the stable band. Reproduce with
-`npm run eval:retrieval`, and set `SEARCH_ALGORITHM=tfidf` to switch.
+A score is not probability, confidence, or correctness. Queries made only of common terms do not
+create evidence, and the service returns `no_match` when nothing clears the configured threshold.
 
-**A score is the share of the query's attainable lexical evidence that a chunk carries, from 0 to
+Ingestion bounds depth, directory entries, documents, per-document bytes, total bytes, concurrent
+reads, chunks, terms, estimated index memory, and build time. Retrieval bounds candidates, results,
+results per source, per-result and total characters, concurrency, queue depth, and execution time.
+Requests cannot raise these ceilings.
 
-1. It is not a probability, not a confidence, and not a correctness signal.** Because scoring is
-   normalized per query, scores are not comparable across different queries.
+## Provenance and insufficient context
 
-This is lexical retrieval with light inflection folding, so "rotate the key" matches a "Rotating
-keys" heading. It matches words, identifiers and their case variants — not meaning. A query using
-entirely different vocabulary than the corpus will legitimately return `no_match`. Retrieval quality
-degrades on corpora where every document repeats the same terms.
+Every result carries:
 
-## Provenance and citations
+- a stable opaque chunk ID;
+- a corpus-relative source;
+- heading hierarchy and nearest section;
+- `startLine` and `endLine`;
+- bounded content, score, and truncation state.
 
-Every result carries a stable chunk ID, a corpus-relative source, the heading hierarchy, and a
-`startLine`/`endLine` range. Cite that range. Absolute paths and storage identity are never
-returned.
+Absolute filesystem paths and storage identity are never returned. Cite the source and line range
+for every claim.
 
-Results are deduplicated, adjacent chunks are merged, and per-source diversity is capped so one
-document cannot crowd out the rest.
+Statuses have distinct meanings:
 
-## Interpreting status
+| Status        | Meaning                                                          |
+| ------------- | ---------------------------------------------------------------- |
+| `ok`          | Usable evidence was found                                        |
+| `no_match`    | The available corpus does not supply sufficient lexical evidence |
+| `degraded`    | Evidence may be stale or retrieval hit a deadline                |
+| `unavailable` | No usable index could be consulted                               |
 
-| Status        | Meaning                                                             |
-| ------------- | ------------------------------------------------------------------- |
-| `ok`          | Usable evidence was found                                           |
-| `no_match`    | Nothing passed the relevance threshold; the corpus may not cover it |
-| `degraded`    | Results may be stale or the search was cut short by a deadline      |
-| `unavailable` | No usable index exists; no evidence can be returned                 |
+Never treat `no_match` or `unavailable` as an answer.
 
-`no_match` and `unavailable` are different failures. The first means the corpus does not answer the
-question; the second means the corpus could not be consulted at all. Never treat either as an
-answer.
+## Benchmark fixture
 
-## Security defaults
+[`tests/fixtures/benchmark-corpus/operations-runbook.md`](tests/fixtures/benchmark-corpus/operations-runbook.md)
+contains the Level 2 runbook evidence for:
 
-- Production refuses `AUTH_MODE=disabled` and rejects a relative or application-directory
-  `DOCS_ROOT`.
-- API keys must be hex encoding at least 32 random bytes, exactly what `openssl rand -hex 32`
-  produces. This is a format contract, not a strength score: the server has no passwords, and a key
-  that a human could have typed is rejected at startup. Keys are compared as fixed-width keyed HMAC
-  digests, and only non-reversible fingerprints are retained.
-- HTML is parsed with a tokenizer rather than regexes, so script, style and attribute content never
-  reaches the index.
-- Authentication is rate-limited before and after credential verification.
-- Blob access is managed identity only, container-scoped and read-only.
-- Errors never expose absolute paths, storage identity, corpus content, queries, or stacks.
-- Queries and document content are never logged; metrics are safe aggregates only.
-- The runtime container runs as the unprivileged `node` user and treats `/app` as code, never a
-  corpus.
+- the runtime port/configuration contract;
+- TCP readiness semantics;
+- why an HTTP `/health` to `/healthz` route rename is not causal for a TCP probe.
 
-**Returned content is untrusted.** A corpus document can contain text that looks like instructions.
-Treat every result as data. See [SECURITY.md](SECURITY.md) for the threat model.
+[`tests/retrieval/benchmark.test.ts`](tests/retrieval/benchmark.test.ts) proves bounded retrieval with
+source and line provenance and separately proves `no_match` when the configured corpus lacks the
+required evidence. The conclusions live only in the corpus fixture, not in ranking or retrieval
+code.
 
-The in-process limiter suits scale-to-zero instances but is not a globally consistent quota. Put a
-distributed gateway in front of the service if callers need a cross-replica quota.
+Run it with:
 
-## Configuration
+```bash
+npm run test:benchmark
+```
 
-See [`.env.example`](.env.example) for every variable and its default. Requests can never raise a
-configured ceiling.
+## Security and privacy
 
-## Troubleshooting
+Corpus content is untrusted data. It is indexed and returned, never executed or interpreted.
+Instructions embedded in documents remain inert evidence. Queries and content are not logged, and
+capability metrics contain safe aggregates only.
 
-| Symptom                              | Cause                                                                                     |
-| ------------------------------------ | ----------------------------------------------------------------------------------------- |
-| `/ready` returns 503 forever         | No corpus configured, the root is missing, or the identity lacks the container role       |
-| Ready but every search `no_match`    | The corpus is empty, all files were skipped, or the vocabulary genuinely differs          |
-| `status: degraded`                   | A refresh failed and the last good index is still serving, or the search hit its deadline |
-| `warnings: ingestion_limits_reached` | The corpus exceeded a configured budget and the index is partial                          |
-| Documents missing from results       | Unsupported extension, oversized, empty, duplicate, binary, or an ignored path            |
-| First request after idle is slow     | Scale-to-zero cold start rebuilding the index; use `minReplicas=1`                        |
-
-`GET /ready` reports index state, counts and skip totals, which is the fastest way to distinguish
-these.
-
-## Privacy
-
-Corpus content never leaves the process except as search results to an authenticated caller. There
-is no external embedding API, no telemetry of query text, and no content in logs or metrics.
-
-## Deployment
-
-Follow [`docs/deployment.md`](docs/deployment.md). The Azure Container Apps example uses a
-user-assigned managed identity, private storage, Key Vault references, and a two-pass bootstrap. It
-is an example, not an implied Azure dependency.
+The filesystem profile relies on the invoking user's operating-system permissions. See
+[`SECURITY.md`](SECURITY.md).
 
 ## Validation
 
+Normal repository checks:
+
 ```bash
+npm ci
 npm run format:check
 npm run lint
 npm run typecheck
@@ -266,20 +228,33 @@ npm run build
 npm run openapi:emit
 npm run metadata:validate
 npm run eval:retrieval
-docker build -t agent-tool-server-doc-rag .
-az bicep build --file infra/main.bicep
-az bicep lint --file infra/main.bicep
+npm run test:benchmark
+npm run package:smoke
+npm audit --omit=dev --audit-level=high
 ```
 
-CI additionally smoke-tests the container against a mounted read-only corpus, verifies that a
-missing corpus stays not-ready, checks non-root execution, compiles every Bicep entry point, audits
-production dependencies, scans for secrets, and runs CodeQL.
+Deployment validation uses the exact Platform source revision rather than copying its schema:
 
-## Metadata
+```bash
+git clone https://github.com/ashergarland/agent-tool-platform.git ../agent-tool-platform
+git -C ../agent-tool-platform checkout --detach 98ec8162fb11d5c04aee9e6f7b3625a472a0180d
+npm --prefix ../agent-tool-platform ci
+npm --prefix ../agent-tool-platform run build
 
-`server.json` describes only what exists. It advertises no npm package and no remote endpoint,
-because neither is published. Add them when they are real; `npm run metadata:validate` rejects
-placeholder endpoints and a package identifier that contradicts a private manifest.
+AGENT_TOOL_PLATFORM_CHECKOUT=../agent-tool-platform npm run deployment:validate
+AGENT_TOOL_PLATFORM_CHECKOUT=../agent-tool-platform npm run deployment:conformance
+```
+
+`npm run package:smoke` builds and packs the real package, installs it into a temporary external
+consumer, retrieves cited evidence from a disposable corpus, and verifies deterministic
+not-configured behavior from a second packaged process. It publishes nothing and removes its
+temporary files.
+
+## Release metadata
+
+Source keeps package and server metadata at `0.0.0-development`. Stable `vX.Y.Z` tags are the
+authoritative versions; the pinned shared Platform release workflow stamps metadata only on its
+runner. No package, release, deployment, or remote endpoint is created by repository validation.
 
 ## License
 

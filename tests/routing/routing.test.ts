@@ -31,13 +31,10 @@ beforeAll(async () => {
 
   const config = buildConfig(
     envSchema.parse({
-      NODE_ENV: 'test',
-      AUTH_MODE: 'disabled',
       CORPUS_SOURCE: 'filesystem',
       DOCS_ROOT: fixtureRoot,
       CORPUS_WATCH: false,
     }),
-    {},
   );
   index = new IndexManager({
     source: new FileSystemCorpusSource({ rootPath: fixtureRoot, limits: config.corpusLimits }),

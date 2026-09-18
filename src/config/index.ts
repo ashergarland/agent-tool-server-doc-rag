@@ -1,16 +1,6 @@
-import { isAbsolute, resolve } from 'node:path';
+import { isAbsolute, relative, resolve } from 'node:path';
+import { defineCapabilityConfig, type PlatformConfig } from '@agent-tool-platform/runtime/config';
 import { z } from 'zod';
-
-const csv = z
-  .string()
-  .transform((value) =>
-    value
-      .split(',')
-      .map((entry) => entry.trim())
-      .filter(Boolean),
-  )
-  .pipe(z.array(z.string().min(1)))
-  .catch([] as string[]);
 
 const booleanish = z.union([z.boolean(), z.string()]).transform((value, context) => {
   if (typeof value === 'boolean') return value;
@@ -27,36 +17,10 @@ export const withoutBlankValues = (source: NodeJS.ProcessEnv): NodeJS.ProcessEnv
   );
 
 export const envSchema = z.object({
-  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  PORT: z.coerce.number().int().min(1).max(65_535).default(8080),
-  HOST: z.string().min(1).default('0.0.0.0'),
-  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
-  SERVICE_NAME: z.string().min(1).default('agent-tool-server-doc-rag'),
-  SERVICE_VERSION: z.string().min(1).default('0.0.0-dev'),
-  GIT_SHA: z.string().default('unknown'),
-  PUBLIC_BASE_URL: z.url().optional(),
-  RATE_LIMIT_MAX: z.coerce.number().int().min(0).default(120),
-  RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).default(60_000),
-  AUTH_MODE: z.enum(['api-key', 'disabled']).default('api-key'),
-  API_KEYS: csv.default([]),
-
   // One process serves exactly one corpus and one authorization boundary.
-  CORPUS_SOURCE: z.enum(['filesystem', 'azure-blob', 'none']).optional(),
+  CORPUS_SOURCE: z.enum(['filesystem', 'none']).optional(),
   DOCS_ROOT: z.string().min(1).optional(),
   CORPUS_WATCH: booleanish.default(true),
-  AZURE_STORAGE_ACCOUNT_NAME: z
-    .string()
-    .regex(/^[a-z0-9]{3,24}$/, 'Expected a storage account name')
-    .optional(),
-  AZURE_STORAGE_CONTAINER: z
-    .string()
-    .regex(/^[a-z0-9][a-z0-9-]{2,62}$/, 'Expected a container name')
-    .optional(),
-  AZURE_STORAGE_PREFIX: z
-    .string()
-    .max(256)
-    .regex(/^[\p{L}\p{N}._\-/]*$/u, 'Prefix may only contain path-safe characters')
-    .optional(),
 
   CORPUS_REFRESH_INTERVAL_MS: z.coerce.number().int().min(0).max(86_400_000).default(0),
   CORPUS_MAX_DEPTH: z.coerce.number().int().min(1).max(32).default(12),
@@ -97,7 +61,7 @@ export const envSchema = z.object({
 
 export type Env = z.infer<typeof envSchema>;
 
-export type CorpusSourceKind = 'filesystem' | 'azure-blob' | 'none';
+export type CorpusSourceKind = 'filesystem' | 'none';
 
 export interface CorpusLimits {
   readonly maxDepth: number;
@@ -134,32 +98,9 @@ export interface SearchLimits {
 
 export type CorpusConfig =
   | { readonly kind: 'none' }
-  | { readonly kind: 'filesystem'; readonly rootPath: string; readonly watch: boolean }
-  | {
-      readonly kind: 'azure-blob';
-      readonly accountName: string;
-      readonly containerName: string;
-      readonly prefix: string;
-    };
+  | { readonly kind: 'filesystem'; readonly rootPath: string; readonly watch: boolean };
 
 export interface AppConfig {
-  readonly env: Env['NODE_ENV'];
-  readonly isProduction: boolean;
-  readonly service: {
-    readonly name: string;
-    readonly version: string;
-    readonly gitSha: string;
-    readonly publicBaseUrl: string | undefined;
-  };
-  readonly http: {
-    readonly host: string;
-    readonly port: number;
-    readonly rateLimit: { readonly max: number; readonly windowMs: number };
-  };
-  readonly logLevel: Env['LOG_LEVEL'];
-  readonly auth:
-    | { readonly mode: 'disabled' }
-    | { readonly mode: 'api-key'; readonly apiKeys: readonly string[] };
   readonly corpus: CorpusConfig;
   readonly refreshIntervalMs: number;
   readonly corpusLimits: CorpusLimits;
@@ -167,22 +108,15 @@ export interface AppConfig {
   readonly search: SearchLimits;
 }
 
+export type DocRagConfig = PlatformConfig & AppConfig;
+
 export class ConfigurationError extends Error {
   public override readonly name = 'ConfigurationError';
 }
 
-const forbiddenStorageCredentialVariables = [
-  'AZURE_STORAGE_CONNECTION_STRING',
-  'AZURE_STORAGE_SAS_TOKEN',
-  'AZURE_STORAGE_SAS',
-  'AZURE_STORAGE_KEY',
-  'AZURE_STORAGE_ACCOUNT_KEY',
-] as const;
-
 const selectSourceKind = (env: Env): CorpusSourceKind => {
   if (env.CORPUS_SOURCE) return env.CORPUS_SOURCE;
   if (env.DOCS_ROOT) return 'filesystem';
-  if (env.AZURE_STORAGE_ACCOUNT_NAME && env.AZURE_STORAGE_CONTAINER) return 'azure-blob';
   return 'none';
 };
 
@@ -190,137 +124,34 @@ const buildCorpusConfig = (env: Env, isProduction: boolean): CorpusConfig => {
   const kind = selectSourceKind(env);
   if (kind === 'none') return { kind: 'none' };
 
-  if (kind === 'filesystem') {
-    if (!env.DOCS_ROOT) {
-      throw new ConfigurationError('CORPUS_SOURCE=filesystem requires DOCS_ROOT');
-    }
-    if (isProduction && !isAbsolute(env.DOCS_ROOT)) {
-      throw new ConfigurationError('DOCS_ROOT must be an absolute path in production');
-    }
-    const rootPath = resolve(env.DOCS_ROOT);
-    const applicationRoot = resolve(process.cwd());
-    if (
-      isProduction &&
-      (rootPath === applicationRoot || applicationRoot.startsWith(`${rootPath}/`))
-    ) {
-      throw new ConfigurationError(
-        'DOCS_ROOT must be a dedicated corpus directory, not the application directory or one of its parents',
-      );
-    }
-    return { kind: 'filesystem', rootPath, watch: env.CORPUS_WATCH };
+  if (!env.DOCS_ROOT) {
+    throw new ConfigurationError('CORPUS_SOURCE=filesystem requires DOCS_ROOT');
   }
-
-  if (!env.AZURE_STORAGE_ACCOUNT_NAME || !env.AZURE_STORAGE_CONTAINER) {
+  if (isProduction && !isAbsolute(env.DOCS_ROOT)) {
+    throw new ConfigurationError('DOCS_ROOT must be an absolute path in production');
+  }
+  const rootPath = resolve(env.DOCS_ROOT);
+  const applicationRoot = resolve(process.cwd());
+  const applicationRelativeToRoot = relative(rootPath, applicationRoot);
+  if (
+    isProduction &&
+    (applicationRelativeToRoot === '' ||
+      (!applicationRelativeToRoot.startsWith('..') && !isAbsolute(applicationRelativeToRoot)))
+  ) {
     throw new ConfigurationError(
-      'CORPUS_SOURCE=azure-blob requires AZURE_STORAGE_ACCOUNT_NAME and AZURE_STORAGE_CONTAINER',
+      'DOCS_ROOT must be a dedicated corpus directory, not the application directory or one of its parents',
     );
   }
-  const prefix = (env.AZURE_STORAGE_PREFIX ?? '').replace(/^\/+/, '');
-  if (prefix.includes('..')) {
-    throw new ConfigurationError('AZURE_STORAGE_PREFIX must not contain relative segments');
-  }
-  return {
-    kind: 'azure-blob',
-    accountName: env.AZURE_STORAGE_ACCOUNT_NAME,
-    containerName: env.AZURE_STORAGE_CONTAINER,
-    prefix: prefix === '' || prefix.endsWith('/') ? prefix : `${prefix}/`,
-  };
+  return { kind: 'filesystem', rootPath, watch: env.CORPUS_WATCH };
 };
 
-/**
- * API keys are generated, never chosen, so this enforces a format contract rather than scoring
- * "strength" the way a password policy would: a key is hex encoding at least 32 random bytes,
- * optionally behind a short non-secret label such as `prod_`.
- *
- * Hex is required rather than merely preferred, because it is the only encoding here that makes the
- * contract decisive. Base64url's alphabet contains every letter, hyphen and underscore, so an
- * encoded random blob is indistinguishable from a typed phrase, and a label cannot be told apart
- * from key material. Hex admits neither problem: prose contains non-hex letters, and hex material
- * contains no separator.
- *
- * Format still cannot reject a degenerate value, since 64 repeated `a` characters are valid hex, so
- * constant and repeating material is rejected as well. Neither check measures entropy, which is not
- * recoverable from a string; generating the key with `openssl rand -hex 32` is what makes it
- * unguessable. These checks only ensure a key could not have been typed by a human.
- */
-const minimumKeyBytes = 32;
-
-/** Optional non-secret label used to identify a key in logs and secret scanners. */
-const keyLabelPattern = /^[a-z0-9][a-z0-9-]{0,31}[_-]/i;
-const hexPattern = /^[0-9a-f]+$/i;
-
-const isDegenerate = (material: string): boolean => {
-  for (let size = 1; size <= material.length / 2; size += 1) {
-    if (material.length % size !== 0) continue;
-    if (material.slice(0, size).repeat(material.length / size) === material) return true;
-  }
-  return false;
-};
-
-const assertGeneratedApiKeys = (apiKeys: readonly string[]): void => {
-  for (const key of apiKeys) {
-    // Hex material contains no separator, so stripping a label can never consume key material.
-    const material = key.replace(keyLabelPattern, '');
-    const valid =
-      hexPattern.test(material) &&
-      material.length >= minimumKeyBytes * 2 &&
-      !isDegenerate(material);
-    if (!valid) {
-      throw new ConfigurationError(
-        `Every API key must be hex encoding at least ${minimumKeyBytes} random bytes ` +
-          '(64 hex characters); generate one with `openssl rand -hex 32`',
-      );
-    }
-  }
-};
-
-export const buildConfig = (env: Env, processEnv: NodeJS.ProcessEnv = process.env): AppConfig => {
-  const isProduction = env.NODE_ENV === 'production';
+export const buildConfig = (env: Env, isProduction = false): AppConfig => {
   if (env.CHUNK_MIN_CHARS >= env.CHUNK_MAX_CHARS) {
     throw new ConfigurationError('CHUNK_MIN_CHARS must be smaller than CHUNK_MAX_CHARS');
   }
-  if (env.AUTH_MODE === 'disabled' && isProduction) {
-    throw new ConfigurationError('AUTH_MODE=disabled is not permitted in production');
-  }
-  if (env.AUTH_MODE === 'api-key') {
-    if (env.API_KEYS.length === 0) {
-      throw new ConfigurationError('AUTH_MODE=api-key requires API_KEYS');
-    }
-    assertGeneratedApiKeys(env.API_KEYS);
-  }
-
-  const corpus = buildCorpusConfig(env, isProduction);
-  if (corpus.kind === 'azure-blob') {
-    const provided = forbiddenStorageCredentialVariables.filter(
-      (name) => (processEnv[name] ?? '').trim() !== '',
-    );
-    if (provided.length > 0) {
-      throw new ConfigurationError(
-        `Blob corpora use managed identity only; remove ${provided.join(', ')}`,
-      );
-    }
-  }
 
   return {
-    env: env.NODE_ENV,
-    isProduction,
-    service: {
-      name: env.SERVICE_NAME,
-      version: env.SERVICE_VERSION,
-      gitSha: env.GIT_SHA,
-      publicBaseUrl: env.PUBLIC_BASE_URL,
-    },
-    http: {
-      host: env.HOST,
-      port: env.PORT,
-      rateLimit: { max: env.RATE_LIMIT_MAX, windowMs: env.RATE_LIMIT_WINDOW_MS },
-    },
-    logLevel: env.LOG_LEVEL,
-    auth:
-      env.AUTH_MODE === 'disabled'
-        ? { mode: 'disabled' }
-        : { mode: 'api-key', apiKeys: env.API_KEYS },
-    corpus,
+    corpus: buildCorpusConfig(env, isProduction),
     refreshIntervalMs: env.CORPUS_REFRESH_INTERVAL_MS,
     corpusLimits: {
       maxDepth: env.CORPUS_MAX_DEPTH,
@@ -355,7 +186,10 @@ export const buildConfig = (env: Env, processEnv: NodeJS.ProcessEnv = process.en
   };
 };
 
-export const loadConfig = (source: NodeJS.ProcessEnv = process.env): AppConfig => {
+export const parseConfig = (
+  source: NodeJS.ProcessEnv = process.env,
+  isProduction = false,
+): AppConfig => {
   const parsed = envSchema.safeParse(withoutBlankValues(source));
   if (!parsed.success) {
     throw new ConfigurationError(
@@ -364,5 +198,12 @@ export const loadConfig = (source: NodeJS.ProcessEnv = process.env): AppConfig =
         .join('; ')}`,
     );
   }
-  return buildConfig(parsed.data, source);
+  return buildConfig(parsed.data, isProduction);
 };
+
+export const docRagCapabilityConfig = defineCapabilityConfig({
+  schema: envSchema,
+  build({ base, env }): DocRagConfig {
+    return { ...base, ...buildConfig(env, base.isProduction) };
+  },
+});

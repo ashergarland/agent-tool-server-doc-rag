@@ -1,0 +1,80 @@
+{
+  "contractVersion": 1,
+  "kind": "capability-profile-declaration",
+  "capability": {
+    "id": "io.github.ashergarland/agent-tool-server-doc-rag",
+    "displayName": "Documentation RAG",
+    "repository": "https://github.com/ashergarland/agent-tool-server-doc-rag"
+  },
+  "profiles": [
+    {
+      "id": "local-filesystem-package",
+      "description": "Read-only local package execution over stdio against one filesystem corpus.",
+      "dimensions": {
+        "execution": "local",
+        "delivery": "package",
+        "access": "local-process",
+        "workload": "filesystem",
+        "provider": "none",
+        "mutation": "read-only"
+      },
+      "delivery": {
+        "supportedForms": ["package"],
+        "publication": {
+          "kind": "package",
+          "identifier": "agent-tool-server-doc-rag"
+        },
+        "entrypoint": {
+          "reference": "dist/stdio.js",
+          "interface": "stdio"
+        },
+        "mechanics": [
+          {
+            "id": "local-stdio",
+            "reference": "README.md#run-the-capability"
+          }
+        ],
+        "provenance": {
+          "method": "package-metadata",
+          "reference": "package.json#repository"
+        }
+      },
+      "configuration": {
+        "schema": {
+          "id": "urn:io.github.ashergarland:agent-tool-server-doc-rag:local-configuration:v1",
+          "capabilityId": "io.github.ashergarland/agent-tool-server-doc-rag",
+          "path": "schemas/local-configuration.schema.json"
+        },
+        "bounded": true
+      },
+      "requiredSecrets": [],
+      "providerPrerequisites": [],
+      "identity": {
+        "trustBoundary": "The invoking local user and that user's operating-system permissions.",
+        "rbac": []
+      },
+      "workload": {
+        "interface": {
+          "kind": "filesystem",
+          "reference": "docs/deployment-profiles.md#local-filesystem-profile"
+        },
+        "authorization": {
+          "scope": "Read only beneath the configured DOCS_ROOT."
+        },
+        "lifecycle": {
+          "mode": "session",
+          "freshness": "Build at session start, then use bounded watching or reconciliation when configured.",
+          "cleanup": "Stop filesystem watching and cancel or settle index work when the session ends."
+        },
+        "notReady": {
+          "whenAbsent": "not-ready",
+          "reason": "Report deterministic not-ready until DOCS_ROOT yields a validated non-empty index."
+        }
+      },
+      "extensionSchemas": [],
+      "verification": {
+        "surfaces": ["readiness", "behavior", "provenance"]
+      }
+    }
+  ]
+}

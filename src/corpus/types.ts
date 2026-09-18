@@ -3,7 +3,7 @@
  * exactly one configured corpus. Nothing in this module knows about ranking, chunking or
  * transports, so the port stays an extraction candidate.
  */
-export type CorpusSourceKind = 'filesystem' | 'azure-blob';
+export type CorpusSourceKind = 'filesystem';
 
 export interface CorpusDocument {
   /** Stable, relative, normalized, control-character-free identifier. Never an absolute path. */

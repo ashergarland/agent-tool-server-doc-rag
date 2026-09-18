@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:io.github.ashergarland:agent-tool-server-doc-rag:local-configuration:v1",
+  "title": "Doc RAG local filesystem configuration",
+  "description": "Bounded configuration for the local filesystem package profile.",
+  "type": "object",
+  "properties": {
+    "CORPUS_SOURCE": {
+      "const": "filesystem"
+    },
+    "DOCS_ROOT": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "CORPUS_WATCH": {
+      "type": "boolean",
+      "default": true
+    },
+    "CORPUS_REFRESH_INTERVAL_MS": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 86400000,
+      "default": 0
+    },
+    "CORPUS_MAX_DEPTH": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 32,
+      "default": 12
+    },
+    "CORPUS_MAX_DIRECTORY_ENTRIES": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 50000,
+      "default": 2000
+    },
+    "CORPUS_MAX_DOCUMENTS": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 50000,
+      "default": 2000
+    },
+    "CORPUS_MAX_DOCUMENT_BYTES": {
+      "type": "integer",
+      "minimum": 1024,
+      "maximum": 16777216,
+      "default": 1048576
+    },
+    "CORPUS_MAX_TOTAL_BYTES": {
+      "type": "integer",
+      "minimum": 1024,
+      "maximum": 268435456,
+      "default": 33554432
+    },
+    "CORPUS_MAX_CONCURRENT_READS": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 32,
+      "default": 4
+    },
+    "INDEX_MAX_CHUNKS": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 500000,
+      "default": 20000
+    },
+    "INDEX_MAX_TERMS": {
+      "type": "integer",
+      "minimum": 1000,
+      "maximum": 5000000,
+      "default": 200000
+    },
+    "INDEX_MAX_MEMORY_BYTES": {
+      "type": "integer",
+      "minimum": 1048576,
+      "maximum": 1073741824,
+      "default": 134217728
+    },
+    "INDEX_BUILD_TIMEOUT_MS": {
+      "type": "integer",
+      "minimum": 1000,
+      "maximum": 600000,
+      "default": 60000
+    },
+    "CHUNK_MAX_CHARS": {
+      "type": "integer",
+      "minimum": 200,
+      "maximum": 8000,
+      "default": 1600
+    },
+    "CHUNK_MIN_CHARS": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4000,
+      "default": 160
+    },
+    "SECTION_MAX_CHARS": {
+      "type": "integer",
+      "minimum": 16,
+      "maximum": 512,
+      "default": 200
+    },
+    "SEARCH_ALGORITHM": {
+      "enum": ["bm25", "tfidf"],
+      "default": "bm25"
+    },
+    "SEARCH_MIN_SCORE": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 0.2
+    },
+    "SEARCH_RELATIVE_CUTOFF": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 0.2
+    },
+    "SEARCH_MAX_CANDIDATES": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10000,
+      "default": 200
+    },
+    "SEARCH_MAX_RESULTS": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 25,
+      "default": 10
+    },
+    "SEARCH_MAX_PER_SOURCE": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 25,
+      "default": 3
+    },
+    "SEARCH_MAX_CONTENT_CHARS": {
+      "type": "integer",
+      "minimum": 200,
+      "maximum": 8000,
+      "default": 1600
+    },
+    "SEARCH_MAX_TOTAL_CHARS": {
+      "type": "integer",
+      "minimum": 200,
+      "maximum": 64000,
+      "default": 8000
+    },
+    "SEARCH_TIMEOUT_MS": {
+      "type": "integer",
+      "minimum": 50,
+      "maximum": 30000,
+      "default": 2000
+    },
+    "SEARCH_MAX_CONCURRENT": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 64,
+      "default": 4
+    },
+    "SEARCH_QUEUE_LIMIT": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000,
+      "default": 32
+    }
+  },
+  "required": ["CORPUS_SOURCE", "DOCS_ROOT"],
+  "additionalProperties": false
+}
